@@ -12,3 +12,174 @@ Types of Errors in Programming
     7. Arithmetic Errors
     8. Interface Errors
     9. Security Errors
+
+the grammar 0.0.0.5
+
+ (* Error-Lang Grammar - Initial Proposal *)
+  (* A Julia-inspired, Turing-complete teaching language *)
+
+  (* ====== PROGRAM STRUCTURE ====== *)
+
+  program      = { declaration } ;
+  declaration  = function_decl | main_block | statement ;
+
+  main_block   = "main" , { statement } , "end" ;
+
+  function_decl = "function" , IDENT , "(" , [ params ] , ")" ,
+                  { statement } , "end" ;
+
+  params       = IDENT , { "," , IDENT } ;
+
+  (* ====== STATEMENTS ====== *)
+
+  statement    = let_stmt | assign_stmt | if_stmt | while_stmt
+               | for_stmt | return_stmt | print_stmt | gutter_block
+               | expr_stmt ;
+
+  let_stmt     = "let" , [ "mutable" ] , IDENT , "=" , expr ;
+  assign_stmt  = IDENT , "=" , expr ;
+  if_stmt      = "if" , expr , { statement } ,
+                 { "elseif" , expr , { statement } } ,
+                 [ "else" , { statement } ] , "end" ;
+  while_stmt   = "while" , expr , { statement } , "end" ;
+  for_stmt     = "for" , IDENT , "in" , expr , { statement } , "end" ;
+  return_stmt  = "return" , [ expr ] ;
+  print_stmt   = ( "print" | "println" ) , "(" , [ args ] , ")" ;
+  gutter_block = "gutter" , { any_token } , "end" ;  (* ERROR ZONE *)
+  expr_stmt    = expr ;
+
+  args         = expr , { "," , expr } ;
+
+  (* ====== EXPRESSIONS ====== *)
+
+  expr         = or_expr ;
+  or_expr      = and_expr , { "or" , and_expr } ;
+  and_expr     = eq_expr , { "and" , eq_expr } ;
+  eq_expr      = cmp_expr , { ( "==" | "!=" ) , cmp_expr } ;
+  cmp_expr     = add_expr , { ( "<" | ">" | "<=" | ">=" ) , add_expr } ;
+  add_expr     = mul_expr , { ( "+" | "-" ) , mul_expr } ;
+  mul_expr     = unary , { ( "*" | "/" | "%" ) , unary } ;
+  unary        = [ "-" | "not" ] , postfix ;
+  postfix      = primary , { call | index } ;
+  call         = "(" , [ args ] , ")" ;
+  index        = "[" , expr , "]" ;
+  primary      = INT | FLOAT | STRING | BOOL | "nil" | IDENT
+               | "[" , [ args ] , "]"    (* array literal *)
+               | "(" , expr , ")"        (* grouping *)
+               | lambda ;
+  lambda       = "fn" , "(" , [ params ] , ")" ,  (* Error-Lang Grammar - Initial Proposal *)
+  (* A Julia-inspired, Turing-complete teaching language *)
+
+  (* ====== PROGRAM STRUCTURE ====== *)
+
+  program      = { declaration } ;
+  declaration  = function_decl | main_block | statement ;
+
+  main_block   = "main" , { statement } , "end" ;
+
+  function_decl = "function" , IDENT , "(" , [ params ] , ")" ,
+                  { statement } , "end" ;
+
+  params       = IDENT , { "," , IDENT } ;
+
+  (* ====== STATEMENTS ====== *)
+
+  statement    = let_stmt | assign_stmt | if_stmt | while_stmt
+               | for_stmt | return_stmt | print_stmt | gutter_block
+               | expr_stmt ;
+
+  let_stmt     = "let" , [ "mutable" ] , IDENT , "=" , expr ;
+  assign_stmt  = IDENT , "=" , expr ;
+  if_stmt      = "if" , expr , { statement } ,
+                 { "elseif" , expr , { statement } } ,
+                 [ "else" , { statement } ] , "end" ;
+  while_stmt   = "while" , expr , { statement } , "end" ;
+  for_stmt     = "for" , IDENT , "in" , expr , { statement } , "end" ;
+  return_stmt  = "return" , [ expr ] ;
+  print_stmt   = ( "print" | "println" ) , "(" , [ args ] , ")" ;
+  gutter_block = "gutter" , { any_token } , "end" ;  (* ERROR ZONE *)
+  expr_stmt    = expr ;
+
+  args         = expr , { "," , expr } ;
+
+  (* ====== EXPRESSIONS ====== *)
+
+  expr         = or_expr ;
+  or_expr      = and_expr , { "or" , and_expr } ;
+  and_expr     = eq_expr , { "and" , eq_expr } ;
+  eq_expr      = cmp_expr , { ( "==" | "!=" ) , cmp_expr } ;
+  cmp_expr     = add_expr , { ( "<" | ">" | "<=" | ">=" ) , add_expr } ;
+  add_expr     = mul_expr , { ( "+" | "-" ) , mul_expr } ;
+  mul_expr     = unary , { ( "*" | "/" | "%" ) , unary } ;
+  unary        = [ "-" | "not" ] , postfix ;
+  postfix      = primary , { call | index } ;
+  call         = "(" , [ args ] , ")" ;
+  index        = "[" , expr , "]" ;
+  primary      = INT | FLOAT | STRING | BOOL | "nil" | IDENT
+               | "[" , [ args ] , "]"    (* array literal *)
+               | "(" , expr , ")"        (* grouping *)
+               | lambda ;
+  lambda       = "fn" , "(" , [ params ] , ")" , "->" , expr ;
+
+  (* ====== LEXICAL ====== *)
+
+  IDENT        = ALPHA , { ALPHA | DIGIT | "_" } ;
+  INT          = DIGIT , { DIGIT } ;
+  FLOAT        = DIGIT , { DIGIT } , "." , DIGIT , { DIGIT } ;
+  STRING       = '"' , { char } , '"' ;
+  BOOL         = "true" | "false" ;
+
+  Turing Completeness Proof:
+  1. Unbounded storage: mutable variables, arrays, recursion
+  2. Conditional branching: if/elseif/else
+  3. Iteration: while loops, for loops, recursion
+  4. First-class functions: lambdas with closures
+
+  Minimal Viable Example:
+  function fib(n)
+      if n <= 1
+          return n
+      end
+      return fib(n - 1) + fib(n - 2)
+  end
+
+  main
+      println(fib(10))
+
+      gutter
+          # Error will be injected here
+          let x = @#$%
+      end
+  end
+"->" , expr ;
+
+  (* ====== LEXICAL ====== *)
+
+  IDENT        = ALPHA , { ALPHA | DIGIT | "_" } ;
+  INT          = DIGIT , { DIGIT } ;
+  FLOAT        = DIGIT , { DIGIT } , "." , DIGIT , { DIGIT } ;
+  STRING       = '"' , { char } , '"' ;
+  BOOL         = "true" | "false" ;
+
+  Turing Completeness Proof:
+  1. Unbounded storage: mutable variables, arrays, recursion
+  2. Conditional branching: if/elseif/else
+  3. Iteration: while loops, for loops, recursion
+  4. First-class functions: lambdas with closures
+
+  Minimal Viable Example:
+  function fib(n)
+      if n <= 1
+          return n
+      end
+      return fib(n - 1) + fib(n - 2)
+  end
+
+  main
+      println(fib(10))
+
+      gutter
+          # Error will be injected here
+          let x = @#$%
+      end
+  end
