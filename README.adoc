@@ -1,1 +1,14 @@
 its the readme
+#
+README
+Types of Errors in Programming 
+
+    1. Syntax Errors
+    2. Runtime Errors
+    3. Logical Errors
+    4. Semantic Errors
+    5. Linker Errors
+    6. Resource Errors
+    7. Arithmetic Errors
+    8. Interface Errors
+    9. Security Errors
