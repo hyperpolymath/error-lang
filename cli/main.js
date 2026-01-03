@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Error-Lang CLI - Main entry point
 
-import { parseArgs } from "jsr:@std/cli/parse-args";
-import { join, dirname } from "jsr:@std/path";
-import { exists } from "jsr:@std/fs/exists";
+import { parseArgs } from "jsr:@std/cli@1/parse-args";
+import { dirname, join } from "jsr:@std/path@1";
+import { exists } from "jsr:@std/fs@1/exists";
 
 // State file location
 const STATE_DIR = ".error-lang";
@@ -50,31 +50,34 @@ const ERROR_CODES = {
   E0001: {
     name: "Unexpected token",
     lesson: "Token classification",
-    description: "The parser encountered a token it wasn't expecting at this position.",
+    description:
+      "The parser encountered a token it wasn't expecting at this position.",
     fix: "Check for typos, missing operators, or misplaced keywords.",
   },
   E0002: {
     name: "Unterminated string",
     lesson: "String literal rules",
     description: "A string was opened with a quote but never closed.",
-    fix: "Add a closing quote (\") to the end of your string.",
+    fix: 'Add a closing quote (") to the end of your string.',
   },
   E0003: {
     name: "Invalid escape sequence",
     lesson: "Escape processing",
     description: "An unrecognized escape sequence was found in a string.",
-    fix: "Valid escapes: \\n, \\r, \\t, \\\\, \\\", \\0, \\xNN",
+    fix: 'Valid escapes: \\n, \\r, \\t, \\\\, \\", \\0, \\xNN',
   },
   E0004: {
     name: "Illegal character",
     lesson: "Character sets",
-    description: "A character was found that isn't valid in Error-Lang source code.",
+    description:
+      "A character was found that isn't valid in Error-Lang source code.",
     fix: "Remove the character or replace it with a valid one.",
   },
   E0005: {
     name: "Missing 'end'",
     lesson: "Block structure",
-    description: "A block (main, function, if, while, for, gutter) was never closed.",
+    description:
+      "A block (main, function, if, while, for, gutter) was never closed.",
     fix: "Add 'end' to close the block.",
   },
   E0006: {
@@ -86,19 +89,23 @@ const ERROR_CODES = {
   E0007: {
     name: "Unicode/smart quote",
     lesson: "Encoding awareness",
-    description: 'Smart quotes (\u201C \u201D) were used instead of straight quotes (").',
+    description:
+      'Smart quotes (\u201C \u201D) were used instead of straight quotes (").',
     fix: 'Replace curly quotes with straight double quotes (").',
   },
   E0008: {
     name: "Identifier rules violation",
     lesson: "Naming conventions",
-    description: "An identifier contains invalid characters or starts with a number.",
-    fix: "Identifiers must start with a letter or underscore, followed by letters, digits, or underscores.",
+    description:
+      "An identifier contains invalid characters or starts with a number.",
+    fix:
+      "Identifiers must start with a letter or underscore, followed by letters, digits, or underscores.",
   },
   E0009: {
     name: "Reserved keyword misuse",
     lesson: "Keyword awareness",
-    description: "A reserved keyword was used where an identifier was expected.",
+    description:
+      "A reserved keyword was used where an identifier was expected.",
     fix: "Choose a different name that isn't a reserved keyword.",
   },
   E0010: {
@@ -117,7 +124,7 @@ function selectErrorForRun(runNumber, seed) {
 }
 
 // Simple tokenizer (placeholder - would import from ReScript compiler)
-function tokenize(source, filename, runNumber) {
+function tokenize(source, _filename, runNumber) {
   const tokens = [];
   const diagnostics = [];
   let pos = 0;
@@ -125,11 +132,31 @@ function tokenize(source, filename, runNumber) {
   let column = 1;
 
   const keywords = new Set([
-    "main", "end", "let", "mutable", "function", "struct",
-    "if", "elseif", "else", "while", "for", "in",
-    "break", "continue", "return", "and", "or", "not",
-    "true", "false", "nil", "gutter", "fn",
-    "print", "println"
+    "main",
+    "end",
+    "let",
+    "mutable",
+    "function",
+    "struct",
+    "if",
+    "elseif",
+    "else",
+    "while",
+    "for",
+    "in",
+    "break",
+    "continue",
+    "return",
+    "and",
+    "or",
+    "not",
+    "true",
+    "false",
+    "nil",
+    "gutter",
+    "fn",
+    "print",
+    "println",
   ]);
 
   while (pos < source.length) {
@@ -181,11 +208,21 @@ function tokenize(source, filename, runNumber) {
           column++;
           const esc = source[pos];
           switch (esc) {
-            case "n": str += "\n"; break;
-            case "r": str += "\r"; break;
-            case "t": str += "\t"; break;
-            case "\\": str += "\\"; break;
-            case '"': str += '"'; break;
+            case "n":
+              str += "\n";
+              break;
+            case "r":
+              str += "\r";
+              break;
+            case "t":
+              str += "\t";
+              break;
+            case "\\":
+              str += "\\";
+              break;
+            case '"':
+              str += '"';
+              break;
             default:
               diagnostics.push({
                 code: "E0003",
@@ -205,7 +242,13 @@ function tokenize(source, filename, runNumber) {
         pos++;
         column++;
       }
-      tokens.push({ type: "STRING", value: str, lexeme: `"${str}"`, line: start.line, column: start.column });
+      tokens.push({
+        type: "STRING",
+        value: str,
+        lexeme: `"${str}"`,
+        line: start.line,
+        column: start.column,
+      });
       continue;
     }
 
@@ -251,27 +294,53 @@ function tokenize(source, filename, runNumber) {
         column++;
       }
       const type = keywords.has(ident) ? ident.toUpperCase() : "IDENTIFIER";
-      tokens.push({ type, value: ident, lexeme: ident, line: start.line, column: start.column });
+      tokens.push({
+        type,
+        value: ident,
+        lexeme: ident,
+        line: start.line,
+        column: start.column,
+      });
       continue;
     }
 
     // Operators and punctuation
     const ops = {
-      "+": "PLUS", "-": "MINUS", "*": "STAR", "/": "SLASH", "%": "PERCENT",
-      "=": "EQUAL", "!": "BANG", "<": "LESS", ">": "GREATER",
-      "(": "LPAREN", ")": "RPAREN", "[": "LBRACKET", "]": "RBRACKET",
-      "{": "LBRACE", "}": "RBRACE", ",": "COMMA", ".": "DOT",
-      ":": "COLON", "?": "QUESTION", "&": "AMPERSAND", "|": "PIPE",
-      "^": "CARET", "~": "TILDE",
+      "+": "PLUS",
+      "-": "MINUS",
+      "*": "STAR",
+      "/": "SLASH",
+      "%": "PERCENT",
+      "=": "EQUAL",
+      "!": "BANG",
+      "<": "LESS",
+      ">": "GREATER",
+      "(": "LPAREN",
+      ")": "RPAREN",
+      "[": "LBRACKET",
+      "]": "RBRACKET",
+      "{": "LBRACE",
+      "}": "RBRACE",
+      ",": "COMMA",
+      ".": "DOT",
+      ":": "COLON",
+      "?": "QUESTION",
+      "&": "AMPERSAND",
+      "|": "PIPE",
+      "^": "CARET",
+      "~": "TILDE",
     };
 
     // Two-character operators
     if (pos + 1 < source.length) {
       const two = ch + source[pos + 1];
       const twoOps = {
-        "==": "EQUAL_EQUAL", "!=": "BANG_EQUAL",
-        "<=": "LESS_EQUAL", ">=": "GREATER_EQUAL",
-        "<<": "LESS_LESS", ">>": "GREATER_GREATER",
+        "==": "EQUAL_EQUAL",
+        "!=": "BANG_EQUAL",
+        "<=": "LESS_EQUAL",
+        ">=": "GREATER_EQUAL",
+        "<<": "LESS_LESS",
+        ">>": "GREATER_GREATER",
         "->": "ARROW",
       };
       if (twoOps[two]) {
@@ -321,45 +390,66 @@ function evaluate(expr, env) {
       return null;
     case "IDENTIFIER":
       return env[expr.value] ?? null;
-    case "BINARY":
+    case "BINARY": {
       const left = evaluate(expr.left, env);
       const right = evaluate(expr.right, env);
       switch (expr.op) {
-        case "+": return left + right;
-        case "-": return left - right;
-        case "*": return left * right;
-        case "/": return left / right;
-        case "%": return left % right;
-        case "==": return left === right;
-        case "!=": return left !== right;
-        case "<": return left < right;
-        case ">": return left > right;
-        case "<=": return left <= right;
-        case ">=": return left >= right;
-        case "and": return left && right;
-        case "or": return left || right;
-        default: return null;
+        case "+":
+          return left + right;
+        case "-":
+          return left - right;
+        case "*":
+          return left * right;
+        case "/":
+          return left / right;
+        case "%":
+          return left % right;
+        case "==":
+          return left === right;
+        case "!=":
+          return left !== right;
+        case "<":
+          return left < right;
+        case ">":
+          return left > right;
+        case "<=":
+          return left <= right;
+        case ">=":
+          return left >= right;
+        case "and":
+          return left && right;
+        case "or":
+          return left || right;
+        default:
+          return null;
       }
-    case "UNARY":
+    }
+    case "UNARY": {
       const operand = evaluate(expr.operand, env);
       switch (expr.op) {
-        case "-": return -operand;
-        case "not": return !operand;
-        default: return null;
+        case "-":
+          return -operand;
+        case "not":
+          return !operand;
+        default:
+          return null;
       }
-    case "CALL":
+    }
+    case "CALL": {
       const fn = env[expr.callee];
       if (typeof fn === "function") {
-        const args = expr.args.map(a => evaluate(a, env));
+        const args = expr.args.map((a) => evaluate(a, env));
         return fn(...args);
       }
       return null;
+    }
     case "ARRAY":
-      return expr.elements.map(e => evaluate(e, env));
-    case "INDEX":
+      return expr.elements.map((e) => evaluate(e, env));
+    case "INDEX": {
       const arr = evaluate(expr.array, env);
       const idx = evaluate(expr.index, env);
       return arr?.[idx];
+    }
     default:
       return null;
   }
@@ -395,14 +485,16 @@ async function runCommand(args) {
   const seed = args.seed ?? state.seed;
   const runId = args["run-id"] ?? state.runCounter;
 
-  console.log(`[Run #${runId}, Seed: ${seed}, Stability: ${state.stabilityScore}]`);
+  console.log(
+    `[Run #${runId}, Seed: ${seed}, Stability: ${state.stabilityScore}]`,
+  );
   console.log();
 
   // Tokenize
   const { tokens, diagnostics } = tokenize(source, filename, runId);
 
   // Inject error into gutter if present
-  const gutterStart = tokens.findIndex(t => t.type === "GUTTER");
+  const gutterStart = tokens.findIndex((t) => t.type === "GUTTER");
   if (gutterStart !== -1) {
     const errorCode = selectErrorForRun(runId, seed);
     const errorInfo = ERROR_CODES[errorCode];
@@ -446,8 +538,9 @@ async function runCommand(args) {
   }
 
   // Simple execution (very basic - just handle print/println in main)
-  const env = {
-    print: (...args) => Deno.stdout.writeSync(new TextEncoder().encode(args.join(" "))),
+  const _env = {
+    print: (...args) =>
+      Deno.stdout.writeSync(new TextEncoder().encode(args.join(" "))),
     println: (...args) => console.log(...args),
   };
 
@@ -476,8 +569,11 @@ async function runCommand(args) {
 
     if (inMain && !inGutter) {
       // Handle print/println
-      if ((tok.type === "IDENTIFIER" && (tok.value === "print" || tok.value === "println")) ||
-          tok.type === "PRINT" || tok.type === "PRINTLN") {
+      if (
+        (tok.type === "IDENTIFIER" &&
+          (tok.value === "print" || tok.value === "println")) ||
+        tok.type === "PRINT" || tok.type === "PRINTLN"
+      ) {
         const isPrintln = tok.value === "println" || tok.type === "PRINTLN";
         // Find arguments (simple: look for string after paren)
         if (tokens[i + 1]?.type === "LPAREN") {
@@ -486,7 +582,9 @@ async function runCommand(args) {
           while (i < tokens.length && tokens[i].type !== "RPAREN") {
             if (tokens[i].type === "STRING") {
               args.push(tokens[i].value);
-            } else if (tokens[i].type === "INTEGER" || tokens[i].type === "FLOAT") {
+            } else if (
+              tokens[i].type === "INTEGER" || tokens[i].type === "FLOAT"
+            ) {
               args.push(tokens[i].value);
             } else if (tokens[i].type === "TRUE") {
               args.push(true);
@@ -513,7 +611,7 @@ async function runCommand(args) {
 }
 
 // Doctor command
-async function doctorCommand() {
+function doctorCommand() {
   console.log("Error-Lang Environment Check");
   console.log("============================");
   console.log();
