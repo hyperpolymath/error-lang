@@ -1,0 +1,362 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+= Error-Lang Curriculum
+:toc:
+:sectnums:
+
+== Overview
+
+Error-Lang turns the compiler toolchain into the curriculum. Each lesson
+corresponds to an error code, teaching students how compilers work by
+forcing them to diagnose and fix intentionally injected errors.
+
+== Lesson Structure
+
+Each lesson follows this format:
+
+1. **Concept Introduction** - What the error teaches
+2. **Example Code** - Program with gutter block
+3. **Error Encounter** - Run until error is injected
+4. **Diagnosis** - Use `error-lang explain` to understand
+5. **Fix** - Apply the correction
+6. **Verification** - Run again to confirm
+
+== Lessons
+
+=== Lesson 1: Unicode & Smart Quotes (E0007)
+
+**Concept**: Character encoding and text editor settings
+
+**The Problem**:
+Many text editors and word processors automatically convert straight quotes
+(`"`) into "smart" or "curly" quotes (`"` and `"`). Programming languages
+almost universally require straight quotes.
+
+**Example**:
+[source,err]
+----
+main
+    gutter
+        let greeting = "Hello, World!"  # Wrong!
+    end
+end
+----
+
+**Learning Objectives**:
+
+* Understand ASCII vs Unicode
+* Configure text editor for programming
+* Recognize invisible character issues
+
+---
+
+=== Lesson 2: Unterminated Strings (E0002)
+
+**Concept**: String literal boundaries
+
+**The Problem**:
+Forgetting to close a string with a matching quote.
+
+**Example**:
+[source,err]
+----
+main
+    gutter
+        let message = "This string never ends
+        let next = "This won't work either
+    end
+end
+----
+
+**Learning Objectives**:
+
+* Understand lexer state machines
+* Recognize multi-line string issues
+* Learn about escape sequences for newlines
+
+---
+
+=== Lesson 3: Missing Blocks (E0005)
+
+**Concept**: Block structure and nesting
+
+**The Problem**:
+Forgetting to close a block with `end`.
+
+**Example**:
+[source,err]
+----
+main
+    if true
+        println("Inside if")
+    # Missing 'end' for if!
+
+    gutter
+        while true
+            println("Forever")
+        # Missing 'end' for while!
+    end
+end
+----
+
+**Learning Objectives**:
+
+* Understand block-structured languages
+* Count opening/closing delimiters
+* Use indentation as visual aid
+
+---
+
+=== Lesson 4: Unexpected Tokens (E0001)
+
+**Concept**: Parser expectations
+
+**The Problem**:
+The parser expected one kind of token but found another.
+
+**Example**:
+[source,err]
+----
+main
+    gutter
+        let = 42           # Missing identifier
+        let x y = 10       # Missing =
+        println "hello"    # Missing parentheses
+    end
+end
+----
+
+**Learning Objectives**:
+
+* Understand grammar rules
+* Read error messages for context
+* Learn operator/operand relationships
+
+---
+
+=== Lesson 5: Invalid Escape Sequences (E0003)
+
+**Concept**: String escape processing
+
+**The Problem**:
+Using an unrecognized escape sequence in a string.
+
+**Example**:
+[source,err]
+----
+main
+    gutter
+        let path = "C:\new\folder"    # \n and \f are escapes!
+        let regex = "\d+\s*"          # \d and \s aren't valid
+    end
+end
+----
+
+**Learning Objectives**:
+
+* Know valid escape sequences: `\n`, `\r`, `\t`, `\\`, `\"`
+* Understand when to escape backslashes
+* Learn raw string alternatives (future lesson)
+
+---
+
+=== Lesson 6: Illegal Characters (E0004)
+
+**Concept**: Valid character sets
+
+**The Problem**:
+Using characters that aren't part of the language syntax.
+
+**Example**:
+[source,err]
+----
+main
+    gutter
+        let price = $100      # $ isn't valid
+        let emoji = 🎉        # Emoji in identifiers
+        let math = α + β      # Greek letters
+    end
+end
+----
+
+**Learning Objectives**:
+
+* Understand lexer character classes
+* ASCII vs extended characters
+* Language design choices
+
+---
+
+=== Lesson 7: Unmatched Parentheses (E0006)
+
+**Concept**: Expression nesting
+
+**The Problem**:
+Parentheses, brackets, or braces don't match up.
+
+**Example**:
+[source,err]
+----
+main
+    gutter
+        let x = ((1 + 2) * 3     # Missing )
+        let arr = [1, 2, 3       # Missing ]
+        let fn = fn(x -> x       # Missing )
+    end
+end
+----
+
+**Learning Objectives**:
+
+* Count delimiters carefully
+* Use editor matching features
+* Understand stack-based parsing
+
+---
+
+=== Lesson 8: Identifier Rules (E0008)
+
+**Concept**: Naming conventions
+
+**The Problem**:
+Identifiers must follow specific rules.
+
+**Example**:
+[source,err]
+----
+main
+    gutter
+        let 123abc = 1      # Can't start with number
+        let my-var = 2      # Hyphen not allowed
+        let my var = 3      # Space not allowed
+    end
+end
+----
+
+**Learning Objectives**:
+
+* Valid identifier patterns
+* Case sensitivity
+* Naming conventions (snake_case, camelCase)
+
+---
+
+=== Lesson 9: Reserved Keywords (E0009)
+
+**Concept**: Language reserved words
+
+**The Problem**:
+Using a keyword as a variable name.
+
+**Example**:
+[source,err]
+----
+main
+    gutter
+        let if = 10         # 'if' is reserved
+        let end = 20        # 'end' is reserved
+        let function = 30   # 'function' is reserved
+    end
+end
+----
+
+**Learning Objectives**:
+
+* Know the keyword list
+* Understand why keywords are reserved
+* Choose appropriate names
+
+---
+
+=== Lesson 10: Error Recovery (Advanced)
+
+**Concept**: How compilers keep going after errors
+
+**The Problem**:
+Understanding parser recovery strategies.
+
+**Example**:
+[source,err]
+----
+main
+    println("Before error")
+
+    gutter
+        let x = @#$%^&      # Totally broken
+        let y = "unterminated
+        println(
+    end
+
+    println("After error - still runs!")
+end
+----
+
+**Learning Objectives**:
+
+* Synchronization points
+* Error cascades
+* Panic mode recovery
+
+== Assessment Ideas
+
+=== Quiz Format
+
+1. Given this error message, what's wrong with the code?
+2. Fix this program to eliminate the error
+3. Predict what error this code will produce
+4. Explain why this character isn't allowed
+
+=== Practical Exercises
+
+1. Run a program 10 times, document all unique errors
+2. Create a program that triggers a specific error
+3. Modify the gutter to be "more broken" in different ways
+4. Explain to a partner what each error teaches
+
+=== Project Ideas
+
+1. Error taxonomy poster - categorize all error types
+2. "Fix the build" speedrun - time how fast you can fix errors
+3. Create teaching materials for a new error code
+4. Write a script that analyzes error frequency
+
+== Teacher Guide
+
+=== Classroom Setup
+
+1. Install Deno on all machines
+2. Clone the Error-Lang repository
+3. Run `error-lang doctor` to verify setup
+4. Distribute example files
+
+=== Running a Lesson
+
+1. **Introduce** the error code and concept (5 min)
+2. **Demonstrate** the error occurring (5 min)
+3. **Students explore** with their own variations (15 min)
+4. **Discuss** findings as a class (10 min)
+5. **Document** learnings in notes (5 min)
+
+=== Tips
+
+* Use `--seed` for reproducible errors in demos
+* Have students work in pairs for discussion
+* Keep a class "error journal" on the board
+* Celebrate the "worst" errors found
+
+== Appendix: Error Code Quick Reference
+
+[cols="1,2,2"]
+|===
+| Code | Name | One-line Fix
+
+| E0001 | Unexpected token | Check grammar and syntax
+| E0002 | Unterminated string | Add closing quote
+| E0003 | Invalid escape | Use valid escape or \\
+| E0004 | Illegal character | Remove or replace character
+| E0005 | Missing 'end' | Add end to close block
+| E0006 | Unmatched paren | Balance () [] {}
+| E0007 | Smart quote | Use straight quotes
+| E0008 | Bad identifier | Follow naming rules
+| E0009 | Reserved keyword | Choose different name
+| E0010 | Whitespace issue | Check indentation
+|===

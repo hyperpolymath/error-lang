@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Error-Lang state
+.error-lang/
+
+# ReScript build
+compiler/lib/
+compiler/.merlin
+compiler/.bsb.lock
+*.res.js
+
+# Deno
+.deno/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (if accidentally installed)
+node_modules/

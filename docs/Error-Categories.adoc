@@ -1,0 +1,322 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+= Error-Lang Error Categories
+:toc:
+:sectnums:
+
+== Overview
+
+Error-Lang produces nine categories of errors as co-products of program
+development. Each category teaches different aspects of programming
+language theory and software engineering.
+
+== Error Category Taxonomy
+
+=== 1. Syntax Errors
+
+**Phase**: Lexical/Parsing
+
+Errors in the structure of code that violate the language grammar.
+
+[cols="1,2,2"]
+|===
+| Code | Error | Example
+
+| E0001 | Unexpected token | `let = 42`
+| E0002 | Unterminated string | `"hello`
+| E0003 | Invalid escape | `"\q"`
+| E0004 | Illegal character | `let x = @`
+| E0005 | Missing 'end' | Unclosed block
+| E0006 | Unmatched paren | `(1 + 2`
+| E0007 | Smart quote | `"hello"` (curly)
+| E0008 | Bad identifier | `123abc`
+| E0009 | Reserved keyword | `let if = 1`
+| E0010 | Whitespace issue | Bad indentation
+|===
+
+**Learning Objective**: Understanding lexers and parsers
+
+---
+
+=== 2. Runtime Errors
+
+**Phase**: Execution
+
+Errors that occur during program execution.
+
+[cols="1,2,2"]
+|===
+| Code | Error | Example
+
+| E0101 | Null reference | `nil.field`
+| E0102 | Index out of bounds | `arr[999]`
+| E0103 | Stack overflow | Infinite recursion
+| E0104 | Type mismatch | `"a" + 1`
+| E0105 | Division by zero | `1 / 0`
+| E0106 | Undefined variable | Using unbound name
+| E0107 | Invalid operation | Operation not defined
+|===
+
+**Learning Objective**: Understanding runtime behavior
+
+---
+
+=== 3. Logical Errors
+
+**Phase**: Semantic Analysis
+
+The program runs but produces incorrect results.
+
+[cols="1,2,2"]
+|===
+| Code | Error | Example
+
+| E0201 | Off-by-one | `i < n` vs `i <= n`
+| E0202 | Wrong operator | `&&` vs `||`
+| E0203 | Comparison inversion | `a > b` vs `a < b`
+| E0204 | Assignment vs equality | `=` vs `==`
+| E0205 | Infinite loop | Missing increment
+| E0206 | Dead code | Unreachable statements
+| E0207 | Missing return | No return in branch
+|===
+
+**Learning Objective**: Debugging and testing
+
+---
+
+=== 4. Semantic Errors
+
+**Phase**: Static Analysis
+
+Code is syntactically valid but meaningless or contradictory.
+
+[cols="1,2,2"]
+|===
+| Code | Error | Example
+
+| E0301 | Type incompatibility | `"str" + 42`
+| E0302 | Arity mismatch | `fn(a,b)` called with 1 arg
+| E0303 | Duplicate definition | Same name twice
+| E0304 | Shadowing warning | Inner scope hides outer
+| E0305 | Unused variable | Declared but never used
+| E0306 | Unreachable pattern | Match never taken
+| E0307 | Invalid coercion | Types can't convert
+|===
+
+**Learning Objective**: Type systems and static analysis
+
+---
+
+=== 5. Linker Errors
+
+**Phase**: Module Resolution
+
+Errors in connecting program parts together.
+
+[cols="1,2,2"]
+|===
+| Code | Error | Example
+
+| E0401 | Module not found | `import "missing"`
+| E0402 | Circular import | A imports B imports A
+| E0403 | Symbol not exported | Using private symbol
+| E0404 | Version mismatch | Incompatible module
+| E0405 | Duplicate export | Same name exported twice
+| E0406 | Missing dependency | Required module absent
+|===
+
+**Learning Objective**: Module systems and dependencies
+
+---
+
+=== 6. Resource Errors
+
+**Phase**: System Interaction
+
+Errors related to system resources.
+
+[cols="1,2,2"]
+|===
+| Code | Error | Example
+
+| E0501 | File not found | `open("missing.txt")`
+| E0502 | Permission denied | No read/write access
+| E0503 | Out of memory | Too large allocation
+| E0504 | Timeout | Operation too slow
+| E0505 | Network error | Connection failed
+| E0506 | Resource exhausted | Too many handles
+| E0507 | Resource leak | Unclosed file/socket
+|===
+
+**Learning Objective**: Resource management and cleanup
+
+---
+
+=== 7. Arithmetic Errors
+
+**Phase**: Numeric Operations
+
+Errors in mathematical computations.
+
+[cols="1,2,2"]
+|===
+| Code | Error | Example
+
+| E0601 | Division by zero | `x / 0`
+| E0602 | Integer overflow | `MAX_INT + 1`
+| E0603 | Underflow | `MIN_INT - 1`
+| E0604 | NaN result | `0.0 / 0.0`
+| E0605 | Infinity | `1.0 / 0.0`
+| E0606 | Precision loss | Float rounding
+| E0607 | Negative sqrt | `sqrt(-1)`
+|===
+
+**Learning Objective**: Numeric representation and limits
+
+---
+
+=== 8. Interface Errors
+
+**Phase**: API/Contract
+
+Errors in interface contracts between components.
+
+[cols="1,2,2"]
+|===
+| Code | Error | Example
+
+| E0701 | Missing method | Interface not satisfied
+| E0702 | Wrong signature | Method has wrong type
+| E0703 | Precondition failed | Input validation
+| E0704 | Postcondition failed | Output validation
+| E0705 | Invariant violated | State corruption
+| E0706 | Protocol violation | Wrong call order
+| E0707 | Version incompatible | API changed
+|===
+
+**Learning Objective**: Design by contract, APIs
+
+---
+
+=== 9. Security Errors
+
+**Phase**: Safety Analysis
+
+Errors that could lead to security vulnerabilities.
+
+[cols="1,2,2"]
+|===
+| Code | Error | Example
+
+| E0801 | Injection risk | Unescaped input
+| E0802 | Buffer overflow | Writing past bounds
+| E0803 | Path traversal | `../../../etc/passwd`
+| E0804 | Sensitive data exposure | Logging secrets
+| E0805 | Race condition | Concurrent access
+| E0806 | Privilege escalation | Unauthorized action
+| E0807 | Cryptographic weakness | Bad random, weak algo
+|===
+
+**Learning Objective**: Secure coding practices
+
+== Error Injection Strategy
+
+=== By Lesson Level
+
+[cols="1,2,2"]
+|===
+| Level | Categories | Focus
+
+| Beginner | Syntax | Grammar and structure
+| Intermediate | Runtime, Logical | Debugging
+| Advanced | Semantic, Linker | Type systems, modules
+| Expert | Resource, Security | Systems programming
+|===
+
+=== Gutter Zone Rules
+
+The `gutter` (ошибка) block is where errors are injected:
+
+1. **One category per run** - Each execution injects errors from one category
+2. **Progressive difficulty** - Run counter affects category selection
+3. **Recoverable** - All injected errors allow program continuation
+4. **Documented** - Every error links to curriculum
+
+=== Stability Score Impact
+
+[cols="1,1,2"]
+|===
+| Category | Score Reduction | Reasoning
+
+| Syntax | -5 | Common, easily fixed
+| Runtime | -10 | More complex debugging
+| Logical | -15 | Requires understanding intent
+| Semantic | -10 | Type system concepts
+| Linker | -5 | Configuration issues
+| Resource | -10 | System interaction
+| Arithmetic | -10 | Numeric edge cases
+| Interface | -15 | Design concepts
+| Security | -20 | Critical importance
+|===
+
+== Implementation Notes
+
+=== Compiler Phases
+
+[source]
+----
+Source Code
+    │
+    ▼ [Syntax Errors: E00xx]
+┌─────────┐
+│  Lexer  │
+└────┬────┘
+     │
+     ▼ [Syntax Errors: E00xx]
+┌─────────┐
+│ Parser  │
+└────┬────┘
+     │
+     ▼ [Semantic Errors: E03xx]
+┌─────────────┐
+│ Type Check  │
+└──────┬──────┘
+       │
+       ▼ [Linker Errors: E04xx]
+┌─────────────┐
+│ Module Res  │
+└──────┬──────┘
+       │
+       ▼ [Runtime Errors: E01xx]
+┌───────────┐  [Logical: E02xx]
+│ Executor  │  [Resource: E05xx]
+└─────┬─────┘  [Arithmetic: E06xx]
+      │        [Interface: E07xx]
+      ▼        [Security: E08xx]
+   Output
+----
+
+=== Error Message Format
+
+All errors follow this format:
+
+----
+Error-LangError: <file>:<line>:<col>: <message>
+  [code=E#### category=<CAT> run=NNN]
+  → Category: <Category Name>
+  → Lesson: <Learning Objective>
+  → Fix: <Recovery Strategy>
+----
+
+== Curriculum Integration
+
+Each error category maps to course modules:
+
+1. **Syntax** → "Introduction to Parsing"
+2. **Runtime** → "Program Execution"
+3. **Logical** → "Debugging Techniques"
+4. **Semantic** → "Type Systems"
+5. **Linker** → "Module Systems"
+6. **Resource** → "Systems Programming"
+7. **Arithmetic** → "Numeric Computing"
+8. **Interface** → "Software Design"
+9. **Security** → "Secure Coding"

@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# loops.err - Demonstrating iteration constructs
+
+main
+    println("=== While Loop ===")
+    let mutable i = 0
+    while i < 5
+        println("i =", i)
+        i = i + 1
+    end
+
+    println("")
+    println("=== For Loop ===")
+    for x in [10, 20, 30, 40, 50]
+        println("x =", x)
+    end
+
+    gutter
+        # Error injection zone
+        for j in
+            println(j
+        end
+    end
+
+    println("")
+    println("Loops complete!")
+end

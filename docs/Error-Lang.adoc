@@ -1,0 +1,355 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+= Error-Lang Language Specification
+:toc:
+:sectnums:
+:source-highlighter: rouge
+
+== Abstract
+
+Error-Lang ("Error Language") is a teaching-first programming language where code
+intentionally breaks. The first task in any Error-Lang exercise is to make it build.
+
+Error-Lang turns the compiler toolchain into the curriculum. Every run produces at
+least one new syntax error, but students can always make progress because the
+system is designed for recovery and diagnosis.
+
+== Non-Goals
+
+* Error-Lang is NOT for production use
+* Error-Lang is NOT a replacement for any serious language
+* Error-Lang does NOT aim for performance
+* Error-Lang errors are NOT bugs - they are the curriculum
+
+== Design Principles
+
+=== Errors Are Features
+
+Every injected error has:
+
+* A unique error code (`E0001`, `E0002`, etc.)
+* A learning objective
+* A recovery path
+* A lesson in the curriculum
+
+=== The Jenga Semantics (Optional)
+
+Error-Lang maintains a **Stability Score** starting at 100. Each run's injected
+error reduces the score. At S=0, execution still works but output becomes
+"wobbly":
+
+* Variables reorder in debug printing
+* Whitespace in pretty printer gets chaotic
+* Semantics remain deterministic
+
+This creates the "it's working, but it's falling apart" aesthetic.
+
+=== Always Recoverable
+
+The parser is error-tolerant. Every injected error is:
+
+* Bounded to a specific zone
+* Recoverable (parser continues after error)
+* Explainable (clear diagnostic message)
+
+== Syntax Reference
+
+Error-Lang uses a Julia-inspired, block-based syntax.
+
+=== Program Structure
+
+[source,err]
+----
+# A complete Error-Lang program
+
+main
+    let greeting = "Hello, Error-Lang!"
+    println(greeting)
+
+    gutter
+        # Error injection zone - something WILL break here
+        let broken = "this might not parse
+    end
+
+    println("Still running!")
+end
+----
+
+=== Tokens
+
+==== Keywords
+
+[cols="1,3"]
+|===
+| Keyword | Purpose
+
+| `main` | Program entry point block
+| `end` | Block terminator
+| `let` | Variable binding
+| `gutter` | Error injection zone (safe to break)
+| `if` / `else` | Conditionals (Stage 2+)
+| `function` | Function definition (Stage 2+)
+|===
+
+==== Literals
+
+[cols="1,2,2"]
+|===
+| Type | Example | Notes
+
+| Integer | `42`, `-17` | 64-bit signed
+| Float | `3.14`, `-0.5` | IEEE 754 double
+| String | `"hello"` | Double-quoted, escapes supported
+| Boolean | `true`, `false` |
+|===
+
+==== Operators
+
+[cols="1,2"]
+|===
+| Precedence | Operators
+
+| Highest | `()` grouping
+| | `*`, `/`, `%` multiplicative
+| | `+`, `-` additive
+| | `==`, `!=`, `<`, `>`, `<=`, `>=` comparison
+| Lowest | `and`, `or` logical
+|===
+
+=== Statements
+
+==== Variable Binding
+
+[source,err]
+----
+let x = 42
+let message = "Hello"
+let result = x + 10
+----
+
+==== Output
+
+[source,err]
+----
+print("no newline")
+println("with newline")
+println(42)
+println("value: ", x)
+----
+
+==== Gutter Block (Error Zone)
+
+The `gutter` block is a designated area where errors will be injected.
+The parser **will** encounter an error here on some runs.
+
+[source,err]
+----
+gutter
+    # Anything here might break
+    let x = ...
+end
+----
+
+Parser recovery rule: on gutter error, skip tokens until `end` and continue
+main program execution.
+
+== Error Model
+
+=== Error Structure
+
+Every Error-Lang error follows this format:
+
+----
+Error-LangError: <file>:<line>:<col>: <message> [code=E#### run=NNN]
+----
+
+Example:
+----
+Error-LangError: hello.err:7:23: unterminated string literal [code=E0002 run=3]
+----
+
+=== Error Codes
+
+[cols="1,3,2"]
+|===
+| Code | Description | Learning Objective
+
+| E0001 | Unexpected token | Token classification
+| E0002 | Unterminated string | String literal rules
+| E0003 | Invalid escape sequence | Escape processing
+| E0004 | Illegal character | Character sets
+| E0005 | Missing 'end' | Block structure
+| E0006 | Unmatched parenthesis | Expression nesting
+| E0007 | Unicode/smart quote | Encoding awareness
+| E0008 | Identifier rules violation | Naming conventions
+| E0009 | Reserved keyword misuse | Keyword awareness
+| E0010 | Whitespace significance | Indentation rules
+|===
+
+=== Run Counter
+
+Error-Lang tracks execution count in `.error-lang/state.json`:
+
+[source,json]
+----
+{
+  "runCounter": 5,
+  "stabilityScore": 80,
+  "lastError": "E0002",
+  "seed": 12345
+}
+----
+
+Each run:
+
+1. Reads current run counter
+2. Selects error injection based on (seed, runCounter)
+3. Injects error into gutter zone
+4. Parses with recovery
+5. Executes valid portions
+6. Updates state file
+
+== CLI Reference
+
+=== error-lang run
+
+[source,bash]
+----
+error-lang run file.err           # Run program
+error-lang run file.err --seed 42 # Deterministic mode
+error-lang run file.err --run-id 5 # Specific run number
+----
+
+=== error-lang doctor
+
+[source,bash]
+----
+error-lang doctor                 # Check environment
+error-lang doctor --verbose       # Detailed diagnostics
+----
+
+=== error-lang explain
+
+[source,bash]
+----
+error-lang explain E0002          # Explain error code
+error-lang explain --all          # List all error codes
+----
+
+=== error-lang fix
+
+[source,bash]
+----
+error-lang fix file.err           # Generate patched file
+error-lang fix file.err --diff    # Show minimal fix
+----
+
+== Grammar (EBNF)
+
+[source,ebnf]
+----
+program     = main_block ;
+
+main_block  = "main" , statements , "end" ;
+
+statements  = { statement } ;
+
+statement   = let_stmt
+            | print_stmt
+            | gutter_block
+            | expression ;
+
+let_stmt    = "let" , IDENTIFIER , "=" , expression ;
+
+print_stmt  = ( "print" | "println" ) , "(" , [ expr_list ] , ")" ;
+
+gutter_block = "gutter" , { token } , "end" ;
+
+expr_list   = expression , { "," , expression } ;
+
+expression  = logical_or ;
+
+logical_or  = logical_and , { "or" , logical_and } ;
+logical_and = equality , { "and" , equality } ;
+equality    = comparison , { ( "==" | "!=" ) , comparison } ;
+comparison  = term , { ( "<" | ">" | "<=" | ">=" ) , term } ;
+term        = factor , { ( "+" | "-" ) , factor } ;
+factor      = unary , { ( "*" | "/" | "%" ) , unary } ;
+unary       = ( "-" | "not" ) , unary | primary ;
+primary     = INTEGER | FLOAT | STRING | BOOL | IDENTIFIER | "(" , expression , ")" ;
+
+IDENTIFIER  = LETTER , { LETTER | DIGIT | "_" } ;
+INTEGER     = [ "-" ] , DIGIT , { DIGIT } ;
+FLOAT       = INTEGER , "." , DIGIT , { DIGIT } ;
+STRING      = '"' , { character } , '"' ;
+BOOL        = "true" | "false" ;
+----
+
+== Implementation Notes
+
+=== Toolchain
+
+* **Compiler**: ReScript (compiles to JS)
+* **CLI**: Deno (JavaScript runtime)
+* **Docs**: AsciiDoc
+
+=== Architecture
+
+[source]
+----
+.err file
+    │
+    ▼
+┌─────────┐    tokens    ┌────────┐    AST    ┌──────────┐
+│  Lexer  │ ──────────▶  │ Parser │ ───────▶  │ Executor │
+└─────────┘              └────────┘            └──────────┘
+    │                        │                      │
+    │                        │                      ▼
+    └────────┬───────────────┴──────────────▶  Output
+             │
+             ▼
+      ┌─────────────┐
+      │ Diagnostics │ ──▶ Error-LangError messages
+      └─────────────┘
+----
+
+== Conformance Levels
+
+=== Level 1: Core (Stage 1)
+
+MUST implement:
+
+* `main`/`end` blocks
+* `let` bindings
+* `print`/`println`
+* Integer and string literals
+* Basic arithmetic
+* `gutter` block with recovery
+* Single error injection per run
+* Run counter tracking
+
+=== Level 2: Teaching (Stage 2)
+
+MUST implement Level 1 plus:
+
+* `error-lang doctor`
+* `error-lang explain`
+* Deterministic `--seed` mode
+* 10 error codes minimum
+
+=== Level 3: Classroom (Stage 3+)
+
+MUST implement Level 2 plus:
+
+* Multiple error zones
+* Stability score
+* LSP-lite support
+* Autograder mode
+
+== License
+
+Error-Lang is licensed under AGPL-3.0-or-later.
+
+== References
+
+* https://github.com/hyperpolymath/error-lang[Error-Lang Repository]
+* https://hyperpolymath.github.io/rhodium-standard-repositories[RSR Specification]

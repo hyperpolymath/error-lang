@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# hello.err - Your first Error-Lang program
+
+main
+    println("Hello, Error-Lang!")
+    println("This is a teaching language.")
+    println("Your first task: make it build.")
+
+    gutter
+        # Something WILL break here on some runs
+        # This is the "error injection zone"
+        let message = "This might not parse correctly
+        let weird = @#$%^&
+    end
+
+    println("But I still run!")
+end

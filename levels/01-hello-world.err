@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Level 01: Hello World
+# Lesson: Your first Error-Lang program
+#
+# OBJECTIVE: Run this program and observe the error.
+#            Then use `error-lang explain` to understand it.
+#
+# INSTRUCTIONS:
+# 1. Run: error-lang run levels/01-hello-world.err
+# 2. Note the error code (e.g., E0002)
+# 3. Run: error-lang explain E0002
+# 4. The program still outputs despite errors!
+
+main
+    println("Welcome to Error-Lang!")
+    println("This is Level 01.")
+
+    gutter
+        # An error WILL be injected here
+        # Don't worry - that's the point!
+        let broken = "this is intentionally broken
+    end
+
+    println("You made it to the end!")
+    println("Level 01 complete!")
+end

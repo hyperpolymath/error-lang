@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+= Contributing to Error-Lang
+
+Thank you for your interest in contributing to Error-Lang!
+
+== Getting Started
+
+. Fork the repository
+. Clone your fork
+. Run `just doctor` to verify your setup
+. Make your changes
+. Run `just test` and `just lint`
+. Submit a pull request
+
+== Language Policy
+
+This project follows the https://github.com/hyperpolymath/rhodium-standard-repositories[RSR] language policy:
+
+* **ReScript** for compiler code
+* **Deno** for CLI (JavaScript, no TypeScript)
+* **AsciiDoc** for documentation
+* **No TypeScript, Node.js, npm, or Go**
+
+== Adding Error Codes
+
+To add a new error code:
+
+. Add the code to `ERROR_CODES` in `cli/main.js`
+. Add handling in `compiler/src/Lexer.res` or `Parser.res`
+. Add a lesson in `docs/Curriculum.adoc`
+. Add an example in `examples/`
+. Update the grammar if needed
+
+== Code Style
+
+* Use `deno fmt` for JavaScript
+* Use `rescript format` for ReScript
+* SPDX license headers on all files
+* Descriptive variable names
+
+== Questions?
+
+Open an issue or discussion on GitHub.

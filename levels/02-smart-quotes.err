@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Level 02: Smart Quotes
+# Lesson: E0007 - Unicode and text encoding
+#
+# OBJECTIVE: Understand why smart quotes break code.
+#
+# INSTRUCTIONS:
+# 1. Run this program a few times
+# 2. Eventually E0007 will be injected
+# 3. Learn about character encoding
+#
+# REAL-WORLD TIP:
+# This happens when you copy code from:
+# - Word documents
+# - Slack/Discord messages
+# - Some websites
+# - PDF files
+
+main
+    println("Level 02: Smart Quotes")
+
+    # These are CORRECT straight quotes:
+    let good1 = "Hello"
+    let good2 = "World"
+
+    gutter
+        # These might become WRONG curly quotes:
+        let bad1 = "Smart quotes"
+        let bad2 = "are sneaky"
+        # The error injector may turn " into " or "
+    end
+
+    println("Straight quotes: ", good1, good2)
+    println("Level 02 complete!")
+end

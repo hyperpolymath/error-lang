@@ -1,185 +1,150 @@
-its the readme
-#
-README
-Types of Errors in Programming 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+= Error-Lang
+:toc:
+:source-highlighter: rouge
 
-    1. Syntax Errors
-    2. Runtime Errors
-    3. Logical Errors
-    4. Semantic Errors
-    5. Linker Errors
-    6. Resource Errors
-    7. Arithmetic Errors
-    8. Interface Errors
-    9. Security Errors
+**A teaching language where code breaks intentionally — your first task is to make it build.**
 
-the grammar 0.0.0.5
+== What is Error-Lang?
 
- (* Error-Lang Grammar - Initial Proposal *)
-  (* A Julia-inspired, Turing-complete teaching language *)
+Error-Lang is a programming language designed for teaching how compilers and
+interpreters work. Unlike normal languages that try to minimize errors,
+Error-Lang *intentionally injects errors* into designated "gutter" blocks.
 
-  (* ====== PROGRAM STRUCTURE ====== *)
+Every run produces at least one syntax error, but students can always make
+progress because the system is designed for recovery and diagnosis.
 
-  program      = { declaration } ;
-  declaration  = function_decl | main_block | statement ;
+== Why?
 
-  main_block   = "main" , { statement } , "end" ;
+* **Learning by breaking**: Understanding errors teaches you how languages work
+* **Safe failure**: Errors are contained in "gutter" blocks
+* **Gamified**: Stability score decreases with each error (Jenga semantics!)
+* **Curriculum-ready**: Each error code maps to a lesson
 
-  function_decl = "function" , IDENT , "(" , [ params ] , ")" ,
-                  { statement } , "end" ;
+== Quick Start
 
-  params       = IDENT , { "," , IDENT } ;
+[source,bash]
+----
+# Install (requires Deno)
+git clone https://github.com/hyperpolymath/error-lang
+cd error-lang
 
-  (* ====== STATEMENTS ====== *)
+# Run a program
+deno task run examples/hello.err
 
-  statement    = let_stmt | assign_stmt | if_stmt | while_stmt
-               | for_stmt | return_stmt | print_stmt | gutter_block
-               | expr_stmt ;
+# Explain an error
+deno task explain E0002
 
-  let_stmt     = "let" , [ "mutable" ] , IDENT , "=" , expr ;
-  assign_stmt  = IDENT , "=" , expr ;
-  if_stmt      = "if" , expr , { statement } ,
-                 { "elseif" , expr , { statement } } ,
-                 [ "else" , { statement } ] , "end" ;
-  while_stmt   = "while" , expr , { statement } , "end" ;
-  for_stmt     = "for" , IDENT , "in" , expr , { statement } , "end" ;
-  return_stmt  = "return" , [ expr ] ;
-  print_stmt   = ( "print" | "println" ) , "(" , [ args ] , ")" ;
-  gutter_block = "gutter" , { any_token } , "end" ;  (* ERROR ZONE *)
-  expr_stmt    = expr ;
+# Check your setup
+deno task doctor
+----
 
-  args         = expr , { "," , expr } ;
+== Example Program
 
-  (* ====== EXPRESSIONS ====== *)
+[source]
+----
+# hello.err
+main
+    println("Hello, Error-Lang!")
 
-  expr         = or_expr ;
-  or_expr      = and_expr , { "or" , and_expr } ;
-  and_expr     = eq_expr , { "and" , eq_expr } ;
-  eq_expr      = cmp_expr , { ( "==" | "!=" ) , cmp_expr } ;
-  cmp_expr     = add_expr , { ( "<" | ">" | "<=" | ">=" ) , add_expr } ;
-  add_expr     = mul_expr , { ( "+" | "-" ) , mul_expr } ;
-  mul_expr     = unary , { ( "*" | "/" | "%" ) , unary } ;
-  unary        = [ "-" | "not" ] , postfix ;
-  postfix      = primary , { call | index } ;
-  call         = "(" , [ args ] , ")" ;
-  index        = "[" , expr , "]" ;
-  primary      = INT | FLOAT | STRING | BOOL | "nil" | IDENT
-               | "[" , [ args ] , "]"    (* array literal *)
-               | "(" , expr , ")"        (* grouping *)
-               | lambda ;
-  lambda       = "fn" , "(" , [ params ] , ")" ,  (* Error-Lang Grammar - Initial Proposal *)
-  (* A Julia-inspired, Turing-complete teaching language *)
+    gutter
+        # Something WILL break here on some runs
+        let broken = "unterminated
+        let weird = @#$%
+    end
 
-  (* ====== PROGRAM STRUCTURE ====== *)
+    println("But I still run!")
+end
+----
 
-  program      = { declaration } ;
-  declaration  = function_decl | main_block | statement ;
+Output:
+----
+[Run #1, Seed: 12345, Stability: 100]
 
-  main_block   = "main" , { statement } , "end" ;
+Error-LangError: hello.err:7:23: [INJECTED] Unterminated string [code=E0002 run=1]
+  → Lesson: String literal rules
+  → Fix: Add a closing quote (") to the end of your string.
 
-  function_decl = "function" , IDENT , "(" , [ params ] , ")" ,
-                  { statement } , "end" ;
+Hello, Error-Lang!
+But I still run!
 
-  params       = IDENT , { "," , IDENT } ;
+[Stability: 95/100]
+----
 
-  (* ====== STATEMENTS ====== *)
+== Features
 
-  statement    = let_stmt | assign_stmt | if_stmt | while_stmt
-               | for_stmt | return_stmt | print_stmt | gutter_block
-               | expr_stmt ;
+=== Turing Complete (Most of the Time)
 
-  let_stmt     = "let" , [ "mutable" ] , IDENT , "=" , expr ;
-  assign_stmt  = IDENT , "=" , expr ;
-  if_stmt      = "if" , expr , { statement } ,
-                 { "elseif" , expr , { statement } } ,
-                 [ "else" , { statement } ] , "end" ;
-  while_stmt   = "while" , expr , { statement } , "end" ;
-  for_stmt     = "for" , IDENT , "in" , expr , { statement } , "end" ;
-  return_stmt  = "return" , [ expr ] ;
-  print_stmt   = ( "print" | "println" ) , "(" , [ args ] , ")" ;
-  gutter_block = "gutter" , { any_token } , "end" ;  (* ERROR ZONE *)
-  expr_stmt    = expr ;
+Error-Lang is a real programming language with:
 
-  args         = expr , { "," , expr } ;
+* Functions and recursion
+* Control flow (if/elseif/else, while, for)
+* First-class lambdas
+* Arrays and data structures
+* Full arithmetic and boolean logic
 
-  (* ====== EXPRESSIONS ====== *)
+=== Jenga Semantics
 
-  expr         = or_expr ;
-  or_expr      = and_expr , { "or" , and_expr } ;
-  and_expr     = eq_expr , { "and" , eq_expr } ;
-  eq_expr      = cmp_expr , { ( "==" | "!=" ) , cmp_expr } ;
-  cmp_expr     = add_expr , { ( "<" | ">" | "<=" | ">=" ) , add_expr } ;
-  add_expr     = mul_expr , { ( "+" | "-" ) , mul_expr } ;
-  mul_expr     = unary , { ( "*" | "/" | "%" ) , unary } ;
-  unary        = [ "-" | "not" ] , postfix ;
-  postfix      = primary , { call | index } ;
-  call         = "(" , [ args ] , ")" ;
-  index        = "[" , expr , "]" ;
-  primary      = INT | FLOAT | STRING | BOOL | "nil" | IDENT
-               | "[" , [ args ] , "]"    (* array literal *)
-               | "(" , expr , ")"        (* grouping *)
-               | lambda ;
-  lambda       = "fn" , "(" , [ params ] , ")" , "->" , expr ;
+The *Stability Score* starts at 100 and decreases with each injected error.
+At low stability, the output becomes "wobbly" but still correct:
 
-  (* ====== LEXICAL ====== *)
+* Debug output may reorder
+* Whitespace in pretty-printing gets chaotic
+* But semantics remain deterministic!
 
-  IDENT        = ALPHA , { ALPHA | DIGIT | "_" } ;
-  INT          = DIGIT , { DIGIT } ;
-  FLOAT        = DIGIT , { DIGIT } , "." , DIGIT , { DIGIT } ;
-  STRING       = '"' , { char } , '"' ;
-  BOOL         = "true" | "false" ;
+=== Deterministic Mode
 
-  Turing Completeness Proof:
-  1. Unbounded storage: mutable variables, arrays, recursion
-  2. Conditional branching: if/elseif/else
-  3. Iteration: while loops, for loops, recursion
-  4. First-class functions: lambdas with closures
+For teaching, use `--seed` for reproducible errors:
 
-  Minimal Viable Example:
-  function fib(n)
-      if n <= 1
-          return n
-      end
-      return fib(n - 1) + fib(n - 2)
-  end
+[source,bash]
+----
+error-lang run hello.err --seed 42
+error-lang run hello.err --seed 42  # Same error every time
+----
 
-  main
-      println(fib(10))
+== Error Codes
 
-      gutter
-          # Error will be injected here
-          let x = @#$%
-      end
-  end
-"->" , expr ;
+[cols="1,2,2"]
+|===
+| Code | Name | Lesson
 
-  (* ====== LEXICAL ====== *)
+| E0001 | Unexpected token | Parser expectations
+| E0002 | Unterminated string | String literal rules
+| E0003 | Invalid escape | Escape processing
+| E0004 | Illegal character | Character sets
+| E0005 | Missing 'end' | Block structure
+| E0006 | Unmatched paren | Expression nesting
+| E0007 | Smart quote | Encoding awareness
+| E0008 | Bad identifier | Naming conventions
+| E0009 | Reserved keyword | Language design
+| E0010 | Whitespace issue | Indentation rules
+|===
 
-  IDENT        = ALPHA , { ALPHA | DIGIT | "_" } ;
-  INT          = DIGIT , { DIGIT } ;
-  FLOAT        = DIGIT , { DIGIT } , "." , DIGIT , { DIGIT } ;
-  STRING       = '"' , { char } , '"' ;
-  BOOL         = "true" | "false" ;
+Use `error-lang explain E0002` for detailed explanations.
 
-  Turing Completeness Proof:
-  1. Unbounded storage: mutable variables, arrays, recursion
-  2. Conditional branching: if/elseif/else
-  3. Iteration: while loops, for loops, recursion
-  4. First-class functions: lambdas with closures
+== Documentation
 
-  Minimal Viable Example:
-  function fib(n)
-      if n <= 1
-          return n
-      end
-      return fib(n - 1) + fib(n - 2)
-  end
+* link:docs/Error-Lang.adoc[Language Specification]
+* link:docs/Grammar.ebnf[EBNF Grammar]
+* link:docs/Curriculum.adoc[Teaching Curriculum]
 
-  main
-      println(fib(10))
+== Technology Stack
 
-      gutter
-          # Error will be injected here
-          let x = @#$%
-      end
-  end
+* **Compiler**: ReScript (compiles to JavaScript)
+* **CLI**: Deno
+* **Docs**: AsciiDoc
+
+No TypeScript. No Node.js. No npm. (Per https://github.com/hyperpolymath/rhodium-standard-repositories[RSR])
+
+== Contributing
+
+See link:CONTRIBUTING.adoc[CONTRIBUTING.adoc] for guidelines.
+
+== License
+
+AGPL-3.0-or-later
+
+== See Also
+
+* https://hyperpolymath.github.io/rhodium-standard-repositories[Rhodium Standard Repositories]
+* https://github.com/hyperpolymath/standards[Hyperpolymath Standards]

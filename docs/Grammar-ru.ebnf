@@ -1,0 +1,152 @@
+(* SPDX-License-Identifier: AGPL-3.0-or-later *)
+(* Error-Lang Grammar - Russian Localization *)
+(* Грамматика Error-Lang - Русская локализация *)
+
+(* ====== СТРУКТУРА ПРОГРАММЫ ====== *)
+
+program = { declaration };
+
+declaration = function_decl | main_block | statement;
+
+main_block = "главный", { statement }, "конец";
+
+function_decl = "функция", IDENT, "(", [ params ], ")", { statement }, "конец";
+
+params = IDENT, { ",", IDENT };
+
+(* ====== ОПЕРАТОРЫ ====== *)
+
+statement =
+    let_stmt |
+    assign_stmt |
+    if_stmt |
+    while_stmt |
+    for_stmt |
+    return_stmt |
+    print_stmt |
+    error_zone |
+    expr_stmt;
+
+let_stmt = "пусть", [ "изменяемый" ], IDENT, "=", expr;
+
+assign_stmt = IDENT, "=", expr;
+
+if_stmt =
+    "если", expr, { statement },
+    { "иначе-если", expr, { statement } },
+    [ "иначе", { statement } ],
+    "конец";
+
+while_stmt = "пока", expr, { statement }, "конец";
+
+for_stmt = "для", IDENT, "в", expr, { statement }, "конец";
+
+return_stmt = "вернуть", [ expr ];
+
+print_stmt = "печать", "(", [ args ], ")";
+
+(* Зона ошибок - сюда будут вставляться ошибки *)
+error_zone = "ошибка", { any_token }, "конец";
+
+(* ====== ВЫРАЖЕНИЯ ====== *)
+
+expr = or_expr;
+
+or_expr = and_expr, { "или", and_expr };
+
+and_expr = eq_expr, { "и", eq_expr };
+
+eq_expr = cmp_expr, { ( "==" | "!=" ), cmp_expr };
+
+cmp_expr = add_expr, { ( "<" | ">" | "<=" | ">=" ), add_expr };
+
+add_expr = mul_expr, { ( "+" | "-" ), mul_expr };
+
+mul_expr = unary, { ( "*" | "/" | "%" ), unary };
+
+unary = [ "-" | "не" ], postfix;
+
+postfix = primary, { call | index };
+
+primary =
+    INT |
+    FLOAT |
+    STRING |
+    BOOL |
+    "ничто" |
+    IDENT |
+    "[" , [ args ] , "]" |
+    "(" , expr , ")" |
+    lambda;
+
+lambda = "стрелка", "(", [ params ], ")", "->", expr;
+
+args = expr, { ",", expr };
+
+call = "(", [ args ], ")";
+
+index = "[", expr, "]";
+
+(* ====== ЛЕКСИЧЕСКИЕ ТОКЕНЫ ====== *)
+
+(* Идентификаторы поддерживают кириллицу *)
+IDENT = ? [a-zA-Zа-яА-Я_] [a-zA-Zа-яА-Я0-9_]* ?;
+
+INT = ? [0-9]+ ?;
+
+FLOAT = ? [0-9]+\.[0-9]+ ?;
+
+STRING = ? "[^"]*" ?;
+
+BOOL = "да" | "нет";
+
+(* ====== ТАБЛИЦА КЛЮЧЕВЫХ СЛОВ ====== *)
+
+(*
+Русский          English         Назначение
+----------------------------------------------
+главный          main            Точка входа
+конец            end             Конец блока
+функция          function        Объявление функции
+пусть            let             Объявление переменной
+изменяемый       mutable         Изменяемая переменная
+если             if              Условие
+иначе-если       elseif          Альтернативное условие
+иначе            else            Иначе
+пока             while           Цикл while
+для              for             Цикл for
+в                in              Оператор in
+вернуть          return          Возврат значения
+печать           print           Вывод
+ошибка           gutter/error    Зона ошибок
+или              or              Логическое ИЛИ
+и                and             Логическое И
+не               not             Логическое НЕ
+да               true            Истина
+нет              false           Ложь
+ничто            nil             Пустое значение
+стрелка          fn/lambda       Лямбда-функция
+*)
+
+(* ====== ПРИМЕР ПРОГРАММЫ ====== *)
+
+(*
+функция фиб(н)
+    если н <= 1
+        вернуть н
+    конец
+    вернуть фиб(н - 1) + фиб(н - 2)
+конец
+
+главный
+    печать("Числа Фибоначчи:")
+    печать("фиб(10) =", фиб(10))
+
+    ошибка
+        # Здесь будет ошибка
+        пусть сломано = "незакрытая строка
+    конец
+
+    печать("Программа завершена!")
+конец
+*)
