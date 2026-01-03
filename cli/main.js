@@ -86,8 +86,8 @@ const ERROR_CODES = {
   E0007: {
     name: "Unicode/smart quote",
     lesson: "Encoding awareness",
-    description: "Smart quotes (" ") were used instead of straight quotes (\").",
-    fix: "Replace " or " with straight double quotes (\").",
+    description: 'Smart quotes (\u201C \u201D) were used instead of straight quotes (").',
+    fix: 'Replace curly quotes with straight double quotes (").',
   },
   E0008: {
     name: "Identifier rules violation",
@@ -210,7 +210,7 @@ function tokenize(source, filename, runNumber) {
     }
 
     // Smart quotes (common error!)
-    if (ch === """ || ch === """) {
+    if (ch === "\u201C" || ch === "\u201D") {
       diagnostics.push({
         code: "E0007",
         message: `Smart quote '${ch}' found - use straight quote '"' instead`,
