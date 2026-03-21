@@ -1,0 +1,487 @@
+// SPDX-License-Identifier: PMPL-1.0-or-later
+= Error-Lang Educational Framework
+:toc:
+:sectnums:
+:source-highlighter: rouge
+
+== Vision: Systems Thinking Through Code
+
+Error-Lang is not just teaching programming - it's teaching **how to think about complex systems**.
+
+The problem with traditional programming education:
+> "Here's the syntax, here's the semantics, here's how to write a loop."
+
+The Error-Lang approach:
+> "Here's a system with layers (grammar → parser → AST → semantics → runtime). When something breaks, you need to understand WHICH layer and WHY."
+
+== The Five Layers of Understanding
+
+Students must learn to navigate these layers:
+
+```
+┌─────────────────────────────────────────┐
+│ Layer 5: Runtime Behavior               │  ← User sees this
+│   "Why does my program crash?"          │
+├─────────────────────────────────────────┤
+│ Layer 4: Semantic Analysis              │
+│   "Why does this type not match?"       │
+├─────────────────────────────────────────┤
+│ Layer 3: Abstract Syntax Tree          │
+│   "How is my code structured?"          │
+├─────────────────────────────────────────┤
+│ Layer 2: Parser                         │
+│   "How does text become structure?"     │
+├─────────────────────────────────────────┤
+│ Layer 1: Grammar (EBNF)                 │  ← Root of everything
+│   "What expressions are valid?"         │
+└─────────────────────────────────────────┘
+```
+
+**Traditional debugging:** Start at Layer 5, guess and check.
+
+**Error-Lang archaeology:** Trace from Layer 5 down to Layer 1, understand causality.
+
+== Root Cause Analysis Tools
+
+=== The Five Whys (Iterative Depth)
+
+When students encounter an error:
+
+```
+ERROR: Type mismatch - expected Int, got String
+
+WHY #1: Why did we get String instead of Int?
+→ Because variable 'x' was reassigned to a String value
+
+WHY #2: Why was 'x' allowed to change types?
+→ Because no type annotation was provided (dynamic typing)
+
+WHY #3: Why does Error-Lang allow dynamic typing?
+→ To show the tradeoff: flexibility vs safety
+
+WHY #4: Why is this a tradeoff?
+→ Because type systems constrain what you can do, but prevent errors
+
+WHY #5: Why do we need constraints?
+→ Because unlimited flexibility makes large programs unmaintainable
+
+ROOT CAUSE: Design decision to allow dynamic typing
+LESSON: Constraints are features, not bugs
+```
+
+=== Fishbone Diagram (Causal Categories)
+
+```
+                    Type Mismatch Error
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+    Grammar          Semantics            Runtime
+        │                  │                  │
+    No type          Reassignment        Late binding
+    annotation       allowed             causes failure
+        │                  │                  │
+        └──────────────────┴──────────────────┘
+                           │
+                    ROOT: Language design
+                    allows type flexibility
+```
+
+Categories:
+- **Grammar**: What the syntax permits
+- **Parser**: How text becomes structure
+- **Semantics**: What the structure means
+- **Type System**: What combinations are valid
+- **Runtime**: What actually happens
+
+=== Soft Systems Methodology (Holistic View)
+
+Error-Lang problems are not just technical - they're about **understanding the system as a whole**.
+
+Rich Picture:
+```
+        👤 Student
+         │
+         ↓ writes
+        📝 Code
+         │
+         ↓ parsed by
+        ⚙️ Grammar (EBNF)
+         │
+         ↓ produces
+        🌳 AST
+         │
+         ↓ analyzed by
+        🔍 Type Checker
+         │
+         ↓ executed by
+        🏃 Runtime
+         │
+         ↓ produces
+        📊 Result (+ Stability Score)
+         │
+         ↓ feedback to
+        👤 Student (learns!)
+```
+
+Each arrow is a **transformation** that can go wrong.
+Students must understand the whole cycle.
+
+== Grammar-Level Understanding
+
+=== EBNF Visualization (Layer 1)
+
+The IDE shows the grammar that makes your code possible:
+
+```ebnf
+program    ::= declaration*
+declaration ::= mainBlock | functionDecl | structDecl
+mainBlock  ::= "main" statement* "end"
+statement  ::= letStmt | ifStmt | whileStmt | exprStmt
+
+letStmt    ::= "let" "mut"? identifier "=" expression
+expression ::= literal | identifier | binary | call
+
+binary     ::= expression operator expression
+operator   ::= "+" | "-" | "*" | "/"
+```
+
+**Interactive mode:** Click on any part of your code, see which grammar rule matched.
+
+```error-lang
+let x = 1 + 2
+│   │   └─┬─┘
+│   │     └─ expression → binary
+│   └─ identifier
+└─ letStmt
+```
+
+**Paradox revelation:** When Error-Lang changes operator behavior based on position, students see:
+
+```
+Grammar says: operator ::= "+"
+But semantics say: '+' means addition OR concatenation OR...
+
+↓ AHA MOMENT ↓
+
+Syntax (grammar) doesn't determine semantics!
+Context does!
+```
+
+=== Grammar Injection (Aspect-Oriented)
+
+Error-Lang supports **runtime grammar modification** to show how languages evolve:
+
+```error-lang
+# Standard grammar
+let x = 1 + 2      # '+' is addition
+
+# Inject a new rule
+inject_grammar("
+  operator '+' at_column 15 means concatenation
+")
+
+let y = 1 + 2      # Same syntax, different semantics!
+```
+
+**Educational purpose:** Students see that grammars are not fixed - they're design choices.
+
+Real-world parallel:
+- Python 2 vs 3 (print statement → print function)
+- JavaScript evolution (adding arrow functions, async/await)
+- Language dialects (C vs C++)
+
+=== Parse Tree Visualization (draw-grammar)
+
+For every line of code, students can see:
+
+```
+Code: let x = 1 + 2
+
+Parse Tree:
+  letStmt
+  ├─ "let"
+  ├─ identifier("x")
+  ├─ "="
+  └─ binary
+      ├─ literal(1)
+      ├─ operator(+)
+      └─ literal(2)
+
+AST (simplified):
+  LetStmt {
+    name: "x",
+    value: Binary(IntLit(1), Add, IntLit(2))
+  }
+```
+
+**Error archaeology:** When something breaks, trace through the tree:
+
+```
+ERROR: Unexpected token
+
+Where did parsing fail?
+  letStmt → ✓
+    identifier → ✓
+    "=" → ✓
+    expression → ✓
+      binary → ✓
+        literal → ✓
+        operator → ✓
+        literal → ✗ EXPECTED, got "end"
+
+ROOT CAUSE: Missing closing delimiter
+LAYER: Parser (Layer 2)
+```
+
+== Black Box Testing Integration
+
+Students should test without knowing internals:
+
+```error-lang
+# Black box test: What does this function do?
+function mystery(n)
+    if n <= 1
+        return 1
+    end
+    return n * mystery(n - 1)
+end
+
+# Test cases (observe behavior)
+mystery(0) = ?   # → 1
+mystery(1) = ?   # → 1
+mystery(5) = ?   # → 120
+
+# Hypothesis: Factorial function
+# Verification: Test edge cases
+mystery(-1) = ?  # → ??? (infinite loop? error?)
+```
+
+**Educational loop:**
+1. Observe behavior (black box)
+2. Form hypothesis
+3. Test hypothesis
+4. Understand internals (white box)
+5. Compare hypothesis to reality
+
+== IDE Architecture: The Archaeology Studio
+
+=== Core Components
+
+```
+┌─────────────────────────────────────────────────┐
+│  Error-Lang Studio (ReScript + TEA)             │
+├─────────────────────────────────────────────────┤
+│                                                  │
+│  ┌─────────────┐  ┌──────────────┐             │
+│  │ Code Editor │  │ Stability    │             │
+│  │             │  │ Dashboard    │             │
+│  └─────────────┘  └──────────────┘             │
+│                                                  │
+│  ┌──────────────────────────────────────┐      │
+│  │ Five-Layer Navigator                 │      │
+│  │ [Runtime][Semantics][AST][Parser][Grammar] │      │
+│  └──────────────────────────────────────┘      │
+│                                                  │
+│  ┌─────────────┐  ┌──────────────┐             │
+│  │ Five Whys   │  │ Fishbone     │             │
+│  │ Analyzer    │  │ Diagram      │             │
+│  └─────────────┘  └──────────────┘             │
+│                                                  │
+│  ┌──────────────────────────────────────┐      │
+│  │ Grammar Visualizer (draw-grammar)     │      │
+│  │ - EBNF display                        │      │
+│  │ - Parse tree explorer                 │      │
+│  │ - AST navigator                       │      │
+│  └──────────────────────────────────────┘      │
+│                                                  │
+│  ┌──────────────────────────────────────┐      │
+│  │ Systems Diagram (Soft Systems)        │      │
+│  │ - Rich pictures                       │      │
+│  │ - Causal loop diagrams                │      │
+│  │ - Transformation chains               │      │
+│  └──────────────────────────────────────┘      │
+│                                                  │
+└─────────────────────────────────────────────────┘
+```
+
+=== ReScript-TEA Architecture
+
+```rescript
+// Main.res - The Elm Architecture
+
+type model = {
+  code: string,
+  ast: option<program>,
+  stability: int,
+  currentLayer: layer,
+  analysisMode: analysisMode,
+  diagram: option<diagram>,
+}
+
+type layer =
+  | Runtime
+  | Semantics
+  | AST
+  | Parser
+  | Grammar
+
+type analysisMode =
+  | FiveWhys
+  | Fishbone
+  | SoftSystems
+  | BlackBox
+
+type msg =
+  | CodeChanged(string)
+  | LayerSelected(layer)
+  | AnalysisModeChanged(analysisMode)
+  | RunFiveWhys
+  | GenerateFishbone
+  | VisualizeGrammar
+  | ExploreAST(astNode)
+
+let update = (msg: msg, model: model): model => {
+  switch msg {
+  | CodeChanged(newCode) => {
+      ...model,
+      code: newCode,
+      ast: Parser.parse(newCode),
+    }
+
+  | LayerSelected(layer) => {
+      ...model,
+      currentLayer: layer,
+    }
+
+  | RunFiveWhys => {
+      let analysis = FiveWhys.analyze(model.ast)
+      {...model, diagram: Some(WhyDiagram(analysis))}
+    }
+
+  | GenerateFishbone => {
+      let causes = Fishbone.analyze(model.ast)
+      {...model, diagram: Some(FishboneDiagram(causes))}
+    }
+
+  | VisualizeGrammar => {
+      let grammar = Grammar.extract(model.ast)
+      {...model, diagram: Some(GrammarDiagram(grammar))}
+    }
+
+  | _ => model
+  }
+}
+
+let view = (model: model): html<msg> => {
+  div([],
+    CodeEditor.view(model.code, CodeChanged),
+    StabilityDashboard.view(model.stability),
+    LayerNavigator.view(model.currentLayer, LayerSelected),
+
+    match model.diagram {
+    | Some(WhyDiagram(analysis)) =>
+        FiveWhysView.render(analysis)
+    | Some(FishboneDiagram(causes)) =>
+        FishboneView.render(causes)
+    | Some(GrammarDiagram(grammar)) =>
+        GrammarView.render(grammar)
+    | None =>
+        EmptyView.render()
+    }
+  )
+}
+```
+
+=== a2ml Integration (Aspect Modeling)
+
+Use a2ml for describing language aspects:
+
+```a2ml
+aspect PositionalSemantics {
+  pointcut: BinaryExpression("+")
+
+  advice: {
+    when: runtime
+    modify: operator_semantics
+
+    behavior(line, column):
+      let hash = (line * 31 + column) mod 4
+      match hash {
+        0 -> Addition
+        1 -> Concatenation
+        2 -> Subtraction
+        3 -> Xor
+      }
+  }
+}
+```
+
+Students can see and modify aspects interactively!
+
+== Pedagogical Flow (2nd/3rd Year PL Course)
+
+=== Week 1-2: Surface Level
+- Write simple programs
+- See stability scores
+- "Why is my code unstable?"
+- **Layer focus:** Runtime (Layer 5)
+
+=== Week 3-4: Semantic Understanding
+- Type systems and their tradeoffs
+- Pattern matching vs if/else
+- Pure functions vs mutations
+- **Layer focus:** Semantics (Layer 4)
+
+=== Week 5-6: Structural Understanding
+- AST visualization
+- How code becomes data structures
+- Tree traversal and transformation
+- **Layer focus:** AST (Layer 3)
+
+=== Week 7-8: Parsing and Grammars
+- EBNF rules
+- Ambiguous grammars
+- Parse tree vs AST
+- Grammar injection
+- **Layer focus:** Parser & Grammar (Layers 2 & 1)
+
+=== Week 9-10: Systems Thinking
+- Five Whys analysis
+- Fishbone diagrams
+- Soft systems methodology
+- Root cause vs symptoms
+- **Layer focus:** All layers (holistic)
+
+=== Week 11-12: Mastery Project
+- Build a compiler extension
+- Design a language feature
+- Analyze tradeoffs
+- Demonstrate systems thinking
+
+== Success Metrics
+
+A student has mastered Error-Lang when they can:
+
+✓ Trace an error from runtime back to grammar
+✓ Explain the tradeoffs of language design decisions
+✓ Use Five Whys to find root causes
+✓ Draw fishbone diagrams for complex bugs
+✓ Visualize how grammar rules affect their code
+✓ Think in layers (not just "it doesn't work")
+✓ Write stable code by understanding consequences
+✓ See debugging as archaeology, not trial-and-error
+
+== The Paradigm Shift
+
+**Before Error-Lang:**
+> "I don't know why this doesn't work. Let me try random stuff."
+
+**After Error-Lang:**
+> "Let me trace the causality. Is this a grammar issue? Parser? Type system? Runtime? Let me use Five Whys to find the root cause."
+
+This is the shift from **cargo cult programming** to **systems engineering**.
+
+---
+
+Error-Lang: Teaching students to think like language designers, not just language users.

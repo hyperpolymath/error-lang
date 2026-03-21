@@ -1,0 +1,31 @@
+# Level 03: Unterminated Strings (E0002)
+# Learning: String literal boundaries
+# Every opening quote needs a closing quote
+
+main
+    # This works - properly terminated string
+    let greeting = "Hello, world!"
+    println(greeting)
+
+    gutter
+        # This fails - where's the closing quote?
+        let broken = "This string never ends
+        println(broken)
+    end
+
+    println("Level 03 complete!")
+end
+
+# LESSON: Strings must be enclosed in matching quotes.
+#
+# The lexer (tokenizer) reads character by character.
+# When it sees a quote, it enters "string mode" and
+# keeps reading until it finds the closing quote.
+#
+# If the closing quote is missing, the lexer gets
+# confused - is the next line part of the string?
+# Is the whole rest of the file a string?
+#
+# Fix: Always close your strings. Use syntax highlighting
+# to spot runaway strings (they often color everything
+# after them the same color).

@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Conformance (INVALID): let without value assignment
+
+main
+    let
+end

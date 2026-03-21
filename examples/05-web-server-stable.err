@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Example: Stable Web Server
+# Learning: How to write high-stability async code
+
+# Type definitions
+type Request = {
+    user_id: Int,
+    path: String
+}
+
+type Response = {
+    status: Int,
+    body: String
+}
+
+# Pure function - no side effects
+async function handle_request(req: Request) -> Response
+    # Parallel async - independent operations
+    let [user, posts] = await Promise.all([
+        fetch_user(req.user_id),
+        fetch_posts(req.user_id)
+    ])
+
+    # Pattern match for safety
+    match (user, posts)
+        (Some(u), Some(p)) =>
+            Response { status: 200, body: render(u, p) }
+        (None, _) =>
+            Response { status: 404, body: "User not found" }
+        (_, None) =>
+            Response { status: 500, body: "Could not fetch posts" }
+    end
+end
+
+async function fetch_user(id: Int) -> Option<User>
+    # Simulate async fetch
+    await sleep(50)
+    Some(User { id: id, name: "Alice" })
+end
+
+async function fetch_posts(id: Int) -> Option<Array<Post>>
+    # Simulate async fetch
+    await sleep(50)
+    Some([Post { title: "Hello" }])
+end
+
+function render(user: User, posts: Array<Post>) -> String
+    "User: " ++ user.name ++ ", Posts: " ++ Int.toString(Array.length(posts))
+end
+
+main
+    let server = Server.new(port: 3000)
+    server.on_request(handle_request)
+
+    println("Server listening on port 3000")
+    println("Stability:", stability())  # Should be 100!
+
+    server.listen().await
+end
+
+# ✅ STABILITY: 100/100
+#
+# Why this is stable:
+# ✓ Pure functions (no side effects)
+# ✓ Explicit types (no type instability)
+# ✓ Pattern matching (all cases handled)
+# ✓ Parallel async (efficient, no blocking)
+# ✓ No global state
+# ✓ No mutation
+#
+# 🎓 LEARNING OUTCOME:
+# This is what "good code" looks like in Error-Lang.
+# Every decision prioritizes stability.
+#
+# Compare this to examples/05-web-server-unstable.err
+# to see the difference!
+#
+# 🏆 ACHIEVEMENT UNLOCKED:
+# "Async Enlightenment" - wrote async code with 100 stability

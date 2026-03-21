@@ -1,0 +1,208 @@
+// SPDX-License-Identifier: PMPL-1.0-or-later
+= Error-Lang Design Philosophy
+:toc:
+:sectnums:
+:source-highlighter: rouge
+
+== The Vision
+
+> "After Error-Lang, debugging becomes archaeology, not busywork."
+
+Error-Lang is not designed to be hard. It's designed to be **educational through consequence amplification**. Every design decision in programming has tradeoffs - most languages hide them. Error-Lang makes them visible, immediate, and measurable.
+
+== Core Principle: Consequence Amplification, Not Arbitrary Difficulty
+
+Traditional languages abstract away consequences:
+- Mutable state causes bugs far from mutation → hard to connect cause and effect
+- Type errors appear at runtime, distant from source → slow feedback
+- Performance cliffs are invisible until production → no learning opportunity
+- Memory leaks accumulate slowly → delayed consequences
+
+**Error-Lang amplifies consequences immediately:**
+- Mutate state → stability drops instantly, affected code highlighted
+- Type mismatch → cascade visualized in real-time
+- O(n²) algorithm → performance penalty applied and explained
+- Memory leak → immediate feedback, not gradual degradation
+
+== The Stability Score: Quantifying Code Quality
+
+Every Error-Lang program has a **Stability Score (0-100)**:
+
+```
+Stability = Base(100) - Σ(Decision Costs)
+
+Where Decision Costs include:
+- Mutable state: -10 per mutation, -5 per reader
+- Type instability: -15 per dynamic reassignment
+- Null propagation: -20 per unchecked nullable
+- Global state: -30 per global mutation
+- Unhandled errors: -25 per unhandled failure path
+- Algorithm complexity: -(time_ms / 10) for O(n²)+
+- Memory leaks: -10 per KB leaked
+- Race conditions: -40 per unsynchronized shared access
+```
+
+**Key insight:** High stability is not achieved by avoiding features - it's achieved by **understanding their costs and using them wisely**.
+
+== Language Archaeology: Debugging as Exploration
+
+Error-Lang contains **intentional design contradictions** that students must discover:
+
+=== 1. Context-Collapse Keywords
+Keywords become identifiers based on context (depth, position, run number).
+
+```error-lang
+main
+    let end = 42        # 'end' is identifier here (depth 1)
+    println(end)        # prints: 42
+end                     # 'end' is keyword here (depth 0)
+```
+
+**Learning outcome:** Context matters. Token meaning isn't always fixed.
+
+=== 2. Positional Operator Semantics
+Operators behave differently based on file position.
+
+```error-lang
+main
+    let a = 1 + 2      # Line 2, col 13: Addition → 3
+    let b = 1 + 2      # Line 3, col 13: Concatenation → "12"
+end
+```
+
+**Learning outcome:** Position affects semantics. Code organization matters.
+
+=== 3. Type Quantum Superposition
+Variables exist in multiple types until "observed" (used).
+
+```error-lang
+main
+    let x = 42         # x is Int|String|Float (superposition)
+    println(x)         # Collapses to String: "42"
+end
+```
+
+**Learning outcome:** Type inference is not magic - context determines types.
+
+=== 4. Scope Leakage on Primes
+Variables leak out of scope on prime-numbered runs.
+
+```error-lang
+main
+    if true
+        let secret = "leaked"
+    end
+    println(secret)    # Error on run #1,2,4,6,8...
+                       # Works on run #3,5,7,11,13... (primes!)
+end
+```
+
+**Learning outcome:** Scope rules are conventions, not laws of physics.
+
+=== 5. Temporal State Pollution
+Previous runs affect current semantics via persistent state.
+
+```error-lang
+main
+    let counter = 0
+    counter = counter + 1
+    println(counter)
+
+    # Run #1-20: prints 1
+    # Run #21+: prints previous run's final value!
+end
+```
+
+**Learning outcome:** State persists. Programs have history.
+
+== The Paradigm Shift
+
+After Error-Lang, students will think differently:
+
+=== About Errors
+❌ **Before:** "Ugh, another error to fix..."
+✅ **After:** "This error reveals a design flaw - let me trace the root cause"
+
+=== About State
+❌ **Before:** "Variables hold values"
+✅ **After:** "State creates dependencies. Minimize it, contain it, make it explicit"
+
+=== About Types
+❌ **Before:** "Types are annotations the compiler wants"
+✅ **After:** "Types are contracts that prevent entire classes of errors"
+
+=== About Performance
+❌ **Before:** "Make it work, then optimize"
+✅ **After:** "Algorithm choice IS design. O(n²) vs O(n) is not a micro-optimization"
+
+=== About Debugging
+❌ **Before:** "Trial and error until it works"
+✅ **After:** "Systematic reasoning from symptom to root cause"
+
+== Real Programs, Real Power
+
+Error-Lang is **Turing-complete and fully featured**:
+
+- ✓ Async/await for concurrent programming
+- ✓ Pattern matching for control flow
+- ✓ First-class functions and closures
+- ✓ Generics and type parameters
+- ✓ Modules and namespaces
+- ✓ FFI for calling other languages
+- ✓ Standard library (collections, I/O, networking)
+
+You can build:
+- Web servers
+- Compilers
+- Games
+- CLI tools
+- Data processors
+- GUIs
+
+**The difference:** You'll understand WHY your code works, not just THAT it works.
+
+== The ReScript IDE: Archaeology Tools
+
+The tooling makes invisible things visible:
+
+=== Stability Dashboard
+Real-time feedback on every decision's consequences.
+
+=== Causality Tracer
+"Why is this unstable?" → traces back to root cause.
+
+=== Alternative Reality Viewer
+"Your code has stability 60. Here's the same logic with stability 100."
+
+=== Principle Encyclopedia
+Unlocks computer science lessons as you discover them through code.
+
+=== Achievement System
+Gamifies learning: "First Pure Function", "Memory Detective", "Async Master"
+
+== Success Criteria
+
+A student has "completed" Error-Lang when:
+
+1. They can write programs with 95+ stability consistently
+2. They understand the tradeoffs of mutability, typing, async, memory management
+3. They debug by reasoning about causality, not trial-and-error
+4. They see errors as information, not obstacles
+5. They've had the "paradigm shift" moment
+
+== Non-Goals
+
+Error-Lang is NOT:
+
+- ❌ A production language (it's pedagogical)
+- ❌ Designed to be easy (it's designed to teach)
+- ❌ Arbitrary difficulty (every challenge has a lesson)
+- ❌ A puzzle language like Malbolge (it's practical and powerful)
+
+== The Ultimate Goal
+
+> "After Error-Lang, you'll never look at a stack trace the same way. You'll see debugging as intellectual archaeology - uncovering layers of causality, understanding systems, connecting means to ends. You might not love debugging, but you'll respect it as the craft it is."
+
+---
+
+**Error-Lang: Where errors are not bugs - they're lessons waiting to be discovered.**

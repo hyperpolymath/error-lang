@@ -1,0 +1,71 @@
+# Level 10: Gutter Mastery
+# Learning: The gutter block and error injection
+# Understanding Error-Lang's core teaching mechanism
+
+main
+    println("Welcome to Gutter Mastery!")
+    println("")
+
+    # The stability score starts at 100
+    println("Stability: 100% - Rock solid")
+
+    gutter
+        # Everything in here is an "error zone"
+        # Errors will be RANDOMLY INJECTED
+        #
+        # This teaches you that:
+        # 1. Errors happen in real code
+        # 2. Compilers try to recover
+        # 3. You can learn from failures
+        #
+        let intentional = "This might break
+        let @oops = 42
+        println("Smart quotes")
+    end
+
+    # Code after gutter still runs!
+    # The compiler recovers and continues
+    println("")
+    println("Stability decreased, but program continues!")
+    println("")
+
+    gutter
+        # Second gutter - more errors, lower stability
+        let another_error
+    end
+
+    println("Level 10 complete!")
+    println("")
+    println("Key insight: Errors are teachers, not enemies.")
+end
+
+# LESSON: The Gutter Block
+#
+# The 'gutter' is Error-Lang's signature feature.
+# It's a designated zone where errors are EXPECTED.
+#
+# SYNTAX:
+#   gutter
+#     ... code that may have errors ...
+#   end
+#
+# BEHAVIOR:
+# 1. Parser enters "error-tolerant" mode
+# 2. Random errors may be injected (based on seed)
+# 3. Each error decreases the Stability Score
+# 4. Parser recovers and continues after 'end'
+#
+# STABILITY SCORE:
+# 100% - No errors (rock solid)
+# 70%+ - Minor issues (stable)
+# 50%+ - Accumulating errors (wobbly)
+# 30%+ - Many errors (unstable)
+# <10% - Critical (barely running)
+# 0%   - Collapsed (too many errors)
+#
+# WHY?
+# Traditional compilers stop at first error.
+# Error-Lang shows that compilers CAN continue,
+# and that understanding errors is the goal.
+#
+# Use --seed=N for reproducible error injection.

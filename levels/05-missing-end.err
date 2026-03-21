@@ -1,0 +1,37 @@
+# Level 05: Missing Block Terminators (E0005)
+# Learning: Block structure and scope
+# Every 'main', 'function', 'if', 'while' needs 'end'
+
+main
+    println("Starting block structure lesson...")
+
+    let x = 10
+
+    gutter
+        # This fails - where does the main block end?
+        # The parser keeps looking for 'end' but never finds it
+        let y = 20
+        println(y)
+        # Oops, forgot 'end' here!
+    # The gutter's 'end' is missing too...
+
+    println("Level 05 complete!")
+end
+
+# LESSON: Error-Lang uses explicit block terminators.
+#
+# Unlike languages with braces { }, Error-Lang uses keywords:
+#
+#   main         if condition     function foo()
+#     ...          ...              ...
+#   end          end              end
+#
+# The parser matches each opening keyword with an 'end'.
+# If 'end' is missing, the parser doesn't know where
+# the block stops. It might:
+# - Think the whole file is one block
+# - Get confused about nesting
+# - Report errors in unexpected places
+#
+# Fix: Indent consistently and add 'end' for each block.
+# Many editors can auto-insert matching 'end'.

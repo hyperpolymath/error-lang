@@ -1,0 +1,525 @@
+// SPDX-License-Identifier: PMPL-1.0-or-later
+= Error-Lang Studio: IDE Architecture
+:toc:
+:sectnums:
+
+== Vision
+
+Error-Lang Studio is a web-based IDE that makes computational forces visible and navigable. It's not just a code editor - it's an **archaeology toolkit** for exploring how code transforms through abstraction layers.
+
+== Architecture: The Elm Architecture (TEA) in ReScript
+
+We use TEA because it's:
+- **Predictable**: Unidirectional data flow
+- **Debuggable**: Time-travel debugging built-in
+- **Testable**: Pure functions everywhere
+- **Scalable**: Composable components
+
+=== Core Pattern
+
+```rescript
+// The TEA pattern
+type model = { /* application state */ }
+type msg = Update | Click | ... /* events */
+
+let init = () => (initialModel, Cmd.none)
+let update = (msg, model) => (newModel, Cmd.none)
+let view = (model) => Html.div(...)
+```
+
+== Model: Application State
+
+```rescript
+// ide/src/Model.res
+
+type model = {
+  // Code state
+  code: string,
+  cursorPosition: {line: int, column: int},
+  selection: option<{start: position, end_: position}>,
+
+  // Compilation state
+  ast: option<program>,
+  parseErrors: array<diagnostic>,
+
+  // Stability tracking
+  stabilityScore: int,
+  stabilityHistory: array<int>,
+  stabilityFactors: array<stabilityFactor>,
+
+  // Layer navigation
+  currentLayer: layer,  // Grammar, Parser, AST, Semantics, Runtime
+  layerViews: dict<layer, string>,
+
+  // Analysis results
+  fiveWhysResults: option<analysisResult>,
+  quantumVariables: array<(string, quantumVariable)>,
+  paradoxes: array<paradox>,
+
+  // UI state
+  activePanel: panel,  // Editor, Dashboard, Navigator, Analyzer
+  theme: theme,
+  fontSize: int,
+
+  // Execution state
+  isRunning: bool,
+  runtimeOutput: array<string>,
+  executionTrace: array<executionStep>,
+}
+
+type panel =
+  | EditorPanel
+  | DashboardPanel
+  | NavigatorPanel
+  | AnalyzerPanel
+  | ExplorerPanel
+
+type layer =
+  | Grammar
+  | Parser
+  | AST
+  | Semantics
+  | Runtime
+
+type theme = Light | Dark | HighContrast
+```
+
+== Messages: Events
+
+```rescript
+// ide/src/Msg.res
+
+type msg =
+  // Code editing
+  | CodeChanged(string)
+  | CursorMoved({line: int, column: int})
+  | SelectionChanged({start: position, end_: position})
+
+  // Compilation
+  | CompileCode
+  | CompilationComplete(result<program, array<diagnostic>>)
+
+  // Execution
+  | RunProgram
+  | StepProgram
+  | PauseProgram
+  | StopProgram
+  | RuntimeOutput(string)
+
+  // Layer navigation
+  | NavigateToLayer(layer)
+  | SelectASTNode(string)  // Node ID
+  | HighlightCode({start: int, end_: int})
+
+  // Analysis
+  | AnalyzeStability
+  | RunFiveWhys(stabilityFactor)
+  | ExploreParadox(paradox)
+
+  // Visualization
+  | ShowRippleEffect({source: int, affected: array<int>})
+  | ShowCascade({path: array<int>})
+  | AnimateStability(int)  // New score
+
+  // UI
+  | SwitchPanel(panel)
+  | ChangeTheme(theme)
+  | ChangeFontSize(int)
+  | ToggleSidebar
+
+  // Persistence
+  | SaveCode
+  | LoadCode(string)
+  | ExportProgram
+```
+
+== Update: State Transitions
+
+```rescript
+// ide/src/Update.res
+
+let update = (msg: msg, model: model): (model, Cmd.msg) => {
+  switch msg {
+  | CodeChanged(newCode) =>
+    // Update code and trigger background compilation
+    let newModel = {...model, code: newCode}
+    (newModel, Cmd.msg(CompileCode))
+
+  | CompileCode =>
+    // Parse and analyze code
+    (model, Cmd.async(() => {
+      let result = Parser.parse(model.code)
+      CompilationComplete(result)
+    }))
+
+  | CompilationComplete(Ok(ast)) =>
+    // Compilation succeeded - update AST and run analysis
+    let newModel = {
+      ...model,
+      ast: Some(ast),
+      parseErrors: [],
+    }
+    (newModel, Cmd.msg(AnalyzeStability))
+
+  | AnalyzeStability =>
+    // Analyze code for stability and paradoxes
+    switch model.ast {
+    | Some(ast) =>
+      let analysis = Analyzer.analyzeProgram(ast, model.stabilityScore)
+      let newModel = {
+        ...model,
+        stabilityScore: analysis.stabilityReport.score,
+        stabilityFactors: analysis.stabilityReport.factors,
+        paradoxes: analysis.paradoxes,
+      }
+      (newModel, Cmd.none)
+    | None =>
+      (model, Cmd.none)
+    }
+
+  | NavigateToLayer(layer) =>
+    // Switch to different abstraction layer
+    let layerView = LayerNavigator.createLayerView(model.ast, layer)
+    let newModel = {
+      ...model,
+      currentLayer: layer,
+      layerViews: Dict.set(model.layerViews, layer, layerView),
+    }
+    (newModel, Cmd.none)
+
+  | RunFiveWhys(factor) =>
+    // Perform Five Whys root cause analysis
+    let analysis = FiveWhys.analyze(factor)
+    let newModel = {...model, fiveWhysResults: Some(analysis)}
+    (newModel, Cmd.none)
+
+  | AnimateStability(newScore) =>
+    // Animate stability change
+    let history = Array.concat(model.stabilityHistory, [newScore])
+    let newModel = {
+      ...model,
+      stabilityScore: newScore,
+      stabilityHistory: history,
+    }
+    (newModel, Cmd.animation(AnimationFrame))
+
+  | _ =>
+    (model, Cmd.none)
+  }
+}
+```
+
+== View: UI Components
+
+```rescript
+// ide/src/View.res
+
+let view = (model: model): Html.html<msg> => {
+  Html.div(
+    [class("error-lang-studio")],
+    [
+      // Top bar
+      viewTopBar(model),
+
+      // Main content area
+      Html.div(
+        [class("main-content")],
+        [
+          // Left sidebar - layer navigator
+          viewLayerNavigator(model),
+
+          // Center - code editor
+          viewEditor(model),
+
+          // Right sidebar - stability dashboard
+          viewStabilityDashboard(model),
+        ]
+      ),
+
+      // Bottom panel - output/analysis
+      viewBottomPanel(model),
+    ]
+  )
+}
+
+// Top bar with controls
+let viewTopBar = (model: model): Html.html<msg> => {
+  Html.div(
+    [class("top-bar")],
+    [
+      Html.h1([], [Html.text("Error-Lang Studio")]),
+
+      // Panel switcher
+      viewPanelTabs(model),
+
+      // Actions
+      Html.div(
+        [class("actions")],
+        [
+          Html.button(
+            [onClick(RunProgram), disabled(model.isRunning)],
+            [Html.text("▶ Run")]
+          ),
+          Html.button(
+            [onClick(StepProgram)],
+            [Html.text("⏭ Step")]
+          ),
+          Html.button(
+            [onClick(AnalyzeStability)],
+            [Html.text("🔍 Analyze")]
+          ),
+        ]
+      ),
+    ]
+  )
+}
+
+// Layer navigator (left sidebar)
+let viewLayerNavigator = (model: model): Html.html<msg> => {
+  Html.div(
+    [class("layer-navigator")],
+    [
+      Html.h2([], [Html.text("Layers")]),
+
+      // Layer stack
+      Html.div(
+        [class("layer-stack")],
+        [
+          viewLayerButton(Grammar, model.currentLayer),
+          viewLayerArrow(),
+          viewLayerButton(Parser, model.currentLayer),
+          viewLayerArrow(),
+          viewLayerButton(AST, model.currentLayer),
+          viewLayerArrow(),
+          viewLayerButton(Semantics, model.currentLayer),
+          viewLayerArrow(),
+          viewLayerButton(Runtime, model.currentLayer),
+        ]
+      ),
+
+      // Current layer view
+      viewCurrentLayerDetail(model),
+    ]
+  )
+}
+
+// Code editor (center)
+let viewEditor = (model: model): Html.html<msg> => {
+  Html.div(
+    [class("editor-container")],
+    [
+      // Monaco editor or CodeMirror
+      Html.div(
+        [id("editor"), onInput(CodeChanged)],
+        []
+      ),
+
+      // Inline decorations (paradoxes, warnings)
+      ...viewInlineDecorations(model),
+    ]
+  )
+}
+
+// Stability dashboard (right sidebar)
+let viewStabilityDashboard = (model: model): Html.html<msg> => {
+  Html.div(
+    [class("stability-dashboard")],
+    [
+      Html.h2([], [Html.text("Stability")]),
+
+      // Animated stability bar
+      viewStabilityBar(model.stabilityScore),
+
+      // Sparkline trend
+      viewStabilityTrend(model.stabilityHistory),
+
+      // Breakdown by category
+      Html.div(
+        [class("stability-breakdown")],
+        viewStabilityBreakdown(model.stabilityFactors)
+      ),
+
+      // Recommendations
+      Html.div(
+        [class("recommendations")],
+        viewRecommendations(model.stabilityFactors)
+      ),
+    ]
+  )
+}
+
+// Bottom panel (output/analysis)
+let viewBottomPanel = (model: model): Html.html<msg> => {
+  Html.div(
+    [class("bottom-panel")],
+    [
+      switch model.activePanel {
+      | EditorPanel => viewOutput(model.runtimeOutput)
+      | AnalyzerPanel => viewFiveWhysPanel(model.fiveWhysResults)
+      | ExplorerPanel => viewParadoxExplorer(model.paradoxes)
+      | _ => Html.div([], [])
+      }
+    ]
+  )
+}
+```
+
+== Component Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Error-Lang Studio                     │
+├──────────────┬────────────────────┬──────────────────────┤
+│              │                    │                      │
+│   Layer      │    Code Editor     │   Stability          │
+│   Navigator  │                    │   Dashboard          │
+│              │                    │                      │
+│  [Grammar]   │  let x = 42        │  ✨ [████████] 95   │
+│     ↓        │  println(x)        │                      │
+│  [Parser]    │                    │  📊 Breakdown:       │
+│     ↓        │  // Decorations:   │    Mutability: -5    │
+│  [AST]       │  🌀 quantum type   │                      │
+│     ↓        │                    │  💡 Recommendations  │
+│  [Semantics] │                    │                      │
+│     ↓        │                    │                      │
+│  [Runtime]   │                    │                      │
+│              │                    │                      │
+├──────────────┴────────────────────┴──────────────────────┤
+│                                                           │
+│  Output / Analysis Panel                                 │
+│                                                           │
+│  🔍 Five Whys Analysis:                                  │
+│  WHY 1: Why is stability dropping?                       │
+│    → Mutable variable detected                           │
+│  WHY 2: ...                                              │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
+```
+
+== Technology Stack
+
+=== Frontend
+- **ReScript**: Type-safe, compiles to clean JS
+- **ReScript-TEA**: The Elm Architecture
+- **Monaco Editor**: VS Code's editor component
+- **SVG/Canvas**: For visualizations (ripples, cascades)
+
+=== Build
+- **Vite**: Fast dev server and build
+- **ReScript compiler**: .res → .js
+- **PostCSS**: CSS processing
+
+=== Development
+- **Deno**: Runtime for CLI tools
+- **Just**: Task runner
+- **Git**: Version control
+
+== File Structure
+
+```
+error-lang/
+├── ide/                         # Web IDE
+│   ├── src/
+│   │   ├── Main.res             # Entry point
+│   │   ├── Model.res            # State definition
+│   │   ├── Msg.res              # Event messages
+│   │   ├── Update.res           # State transitions
+│   │   ├── View.res             # UI rendering
+│   │   ├── components/
+│   │   │   ├── Editor.res
+│   │   │   ├── LayerNavigator.res
+│   │   │   ├── StabilityDashboard.res
+│   │   │   ├── FiveWhysPanel.res
+│   │   │   └── ParadoxExplorer.res
+│   │   └── visualizations/
+│   │       ├── RippleEffect.res
+│   │       ├── CascadeViz.res
+│   │       └── StabilityBar.res
+│   ├── public/
+│   ├── index.html
+│   ├── vite.config.js
+│   └── rescript.json
+│
+├── compiler/                    # ReScript compiler modules
+│   └── src/
+│       ├── Types.res
+│       ├── Parser.res
+│       ├── Analyzer.res
+│       ├── Stability.res
+│       ├── LayerNavigator.res
+│       └── FiveWhys.res
+│
+└── cli/                        # Terminal tools
+    ├── runtime.js
+    ├── explore.js
+    └── analyze.js
+```
+
+== Implementation Phases
+
+=== Phase 1: Foundation (Week 1-2)
+- [ ] Set up ReScript-TEA project
+- [ ] Basic editor with Monaco
+- [ ] Simple compile on change
+- [ ] Display AST
+
+=== Phase 2: Layer Navigation (Week 3-4)
+- [ ] Layer navigator component
+- [ ] Grammar → Parser → AST views
+- [ ] Click to navigate layers
+- [ ] Highlight code at each layer
+
+=== Phase 3: Stability System (Week 5-6)
+- [ ] Integrate stability tracker
+- [ ] Animated stability bar
+- [ ] Breakdown visualization
+- [ ] Real-time updates
+
+=== Phase 4: Visual Feedback (Week 7-8)
+- [ ] Ripple effects for mutations
+- [ ] Cascade visualization
+- [ ] Performance cliff warnings
+- [ ] Animated transitions
+
+=== Phase 5: Analysis Tools (Week 9-10)
+- [ ] Five Whys panel
+- [ ] Paradox explorer
+- [ ] Fishbone diagrams
+- [ ] Soft systems diagrams
+
+=== Phase 6: Polish (Week 11-12)
+- [ ] Themes (light/dark/high-contrast)
+- [ ] Keyboard shortcuts
+- [ ] Save/load projects
+- [ ] Export programs
+- [ ] Documentation
+
+== Future Enhancements
+
+=== Multi-file Projects
+Support for multiple .err files with imports/modules
+
+=== Collaborative Editing
+Real-time collaboration with shared stability view
+
+=== Time-Travel Debugging
+Replay execution with stability changes
+
+=== AI Assistant
+Claude integration for explaining paradoxes and suggesting fixes
+
+=== Mobile Support
+Touch-optimized interface for tablets
+
+== Success Metrics
+
+The IDE is successful when:
+- Students can navigate all 5 layers fluently
+- Stability feedback is immediate (<100ms)
+- Paradoxes are discoverable through exploration
+- Five Whys analysis is clear and actionable
+- Visual feedback makes invisible forces visible
+
+---
+
+**Error-Lang Studio: Where debugging becomes archaeology.**

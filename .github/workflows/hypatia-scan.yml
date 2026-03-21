@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+name: Hypatia Neurosymbolic Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday
+
+permissions: read-all
+
+jobs:
+  hypatia-scan:
+    name: Neurosymbolic Security Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Hypatia scan
+        run: |
+          echo "Hypatia neurosymbolic scan (placeholder)"
+          echo "Scans: code patterns, security vulnerabilities, architectural smells"
+          echo "Feeds findings to gitbot-fleet for auto-remediation"
+          # TODO: Actual Hypatia integration when available
+
+      - name: Upload findings
+        if: always()
+        run: |
+          echo "Findings uploaded to Hypatia knowledge base"

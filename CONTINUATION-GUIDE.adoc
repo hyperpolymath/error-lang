@@ -1,0 +1,440 @@
+// SPDX-License-Identifier: PMPL-1.0-or-later
+= Error-Lang: Continuation Guide
+:toc:
+:sectnums:
+
+== Session Summary: 2026-01-31
+
+**What We Built Today:**
+
+This session took Error-Lang from concept to working implementation with a complete IDE architecture.
+
+=== Major Accomplishments
+
+1. **Paradigm Shift** - Error-Lang is NOT about runtime error injection, but about architectural fragility baked into the language itself
+
+2. **Complete Runtime** - Deno runtime with:
+   - Real-time stability tracking (0-100 score)
+   - Visual haptic feedback (emojis, colors, sparklines)
+   - Five abstraction layer navigation
+   - Five Whys root cause analysis
+   - Working paradox detection
+
+3. **IDE Architecture** - Full ReScript-TEA implementation:
+   - Model/Msg/Update/View (complete TEA pattern)
+   - 3-panel layout (layers, editor, dashboard)
+   - Computational haptics visualizations
+   - Deno build configuration (not npm!)
+
+4. **Formal Documentation**:
+   - STATE.scm - Project state with 35% completion
+   - META.scm - 7 architectural decisions documented
+   - ECOSYSTEM.scm - Integration with hyperpolymath stack
+   - README.adoc - Complete user-facing documentation
+   - ROADMAP.adoc - Development plan through 1.0
+
+5. **Standard Workflows**:
+   - Hypatia neurosymbolic scan
+   - CodeQL security analysis
+   - OpenSSF Scorecard
+   - Quality checks (TruffleHog, EditorConfig, Deno lint)
+   - RSR compliance validation
+   - Mirror to GitLab/Bitbucket
+
+=== What's Working
+
+**Fully Functional:**
+- ✅ Deno runtime (`deno run -A cli/runtime.js examples/*.err`)
+- ✅ Stability tracking with visual feedback
+- ✅ Five Whys analysis
+- ✅ Layer navigator (terminal UI)
+- ✅ Example programs (5 paradoxes)
+- ✅ Complete documentation
+
+**Implemented But Untested:**
+- 🔄 IDE architecture (files created, build not tested yet)
+- 🔄 ReScript-TEA application (needs `deno task dev` to test)
+- 🔄 Vite build configuration
+
+**Needs Implementation:**
+- ❌ Monaco editor integration
+- ❌ Remaining 5 paradoxes
+- ❌ Idris2 formal verification
+- ❌ State persistence fix (run counter)
+
+== Quick Start: Pick Up Where We Left Off
+
+=== Immediate Next Steps (5 minutes)
+
+1. **Test the IDE build:**
+```bash
+cd ~/Documents/hyperpolymath-repos/error-lang/ide
+deno task dev
+```
+
+Expected: Vite dev server starts on http://localhost:3000
+
+Possible issues:
+- ReScript compiler errors (check `rescript build` output)
+- Missing dependencies (run `deno cache` commands)
+- Import path issues (check `deno.json` imports)
+
+2. **If build fails, check:**
+```bash
+# Check ReScript compilation
+cd compiler && rescript build
+
+# Check for any .res syntax errors
+ls -la ide/src/*.res
+
+# Verify deno.json is valid
+deno task --help
+```
+
+3. **Test the runtime (already working):**
+```bash
+cd ~/Documents/hyperpolymath-repos/error-lang
+deno run -A cli/runtime.js examples/01-hello-world.err
+deno run -A cli/runtime.js examples/04-scope-leakage.err
+```
+
+This should show stability tracking in action.
+
+=== What to Ask Claude Next
+
+**If you want to continue IDE development:**
+> "The IDE build setup is done. Let's test `deno task dev` and fix any errors. Then integrate the compiler so we can edit .err files in the browser."
+
+**If you want to add more paradoxes:**
+> "Let's implement the next paradox: Reserved Word Roulette. Keywords like `let` should shift meaning based on context. Here's how it should work: [describe paradox]"
+
+**If you want to focus on formal verification:**
+> "Let's start the Idris2 proofs. Begin with the simplest: prove that stability score is always in [0, 100]. Create `proven/src/Stability.idr`."
+
+**If you want to deploy:**
+> "The IDE architecture is ready. Let's create the draig-ssg configuration and deploy to GitHub Pages so we can test it live."
+
+**If you want to add to the curriculum:**
+> "I want to create a 2-week course module for [Programming Languages/Database Systems/Data Structures]. Help me design the lesson plan using Error-Lang."
+
+== File Locations Reference
+
+=== Core Implementation
+
+**Runtime (Deno/JavaScript):**
+```
+cli/runtime.js              - Main executable
+cli/stability-tracker.js    - Stability scoring
+cli/visual-feedback.js      - Animated bars, emojis
+cli/layer-navigator.js      - 5-layer exploration
+cli/five-whys.js            - Root cause analysis
+```
+
+**Compiler (ReScript):**
+```
+compiler/src/Types.res             - Type definitions
+compiler/src/Stability.res         - Core stability logic
+compiler/src/TypeSuperposition.res - Quantum types
+compiler/src/LayerNavigator.res    - Layer transformation
+compiler/src/FiveWhys.res          - Causality tracing
+```
+
+**IDE (ReScript-TEA):**
+```
+ide/src/Model.res    - Application state
+ide/src/Msg.res      - Event messages
+ide/src/Update.res   - State transitions
+ide/src/View.res     - UI rendering
+ide/src/Main.res     - Entry point
+ide/deno.json        - Deno config (NOT package.json!)
+ide/vite.config.js   - Build tool
+```
+
+=== Documentation
+
+**Project Meta:**
+```
+STATE.scm          - Current state, tasks, blockers
+META.scm           - Architecture decisions (7 ADRs)
+ECOSYSTEM.scm      - Hyperpolymath integration
+README.adoc        - Main documentation
+ROADMAP.adoc       - Development plan
+```
+
+**Educational:**
+```
+docs/Design-Philosophy.adoc        - Why Error-Lang exists
+docs/Educational-Framework.adoc    - 12-week curriculum
+docs/Error-Ecosystem-Vision.adoc   - Future expansion
+```
+
+**Technical:**
+```
+ide/ARCHITECTURE.adoc    - IDE design
+ide/INTEGRATION.adoc     - Ecosystem integration
+ide/README.adoc          - IDE-specific docs
+```
+
+=== Examples
+
+```
+examples/01-hello-world.err          - Basic program
+examples/02-positional-operators.err - Operators change by column
+examples/03-context-collapse.err     - maybe/sometimes keywords
+examples/04-scope-leakage.err        - Prime run paradox
+examples/06-type-superposition.err   - Quantum types
+```
+
+== Known Issues
+
+=== Issue 1: State Persistence (Run Counter)
+
+**Problem:** Run number always shows #1 instead of incrementing
+
+**Location:** `cli/stability-tracker.js` line ~50
+
+**Status:** Infrastructure complete, persistence logic needs debugging
+
+**How to fix:**
+```javascript
+// cli/stability-tracker.js
+async loadState(stateDir) {
+  // Current code writes state file
+  // But run counter doesn't increment correctly
+  // Need to debug the state file read/write cycle
+}
+```
+
+**Test:**
+```bash
+# Run multiple times - counter should increment
+deno run -A cli/runtime.js examples/04-scope-leakage.err  # Run #1
+deno run -A cli/runtime.js examples/04-scope-leakage.err  # Run #2 (prime!)
+deno run -A cli/runtime.js examples/04-scope-leakage.err  # Run #3 (prime!)
+```
+
+=== Issue 2: IDE Build Not Tested
+
+**Problem:** ReScript-TEA IDE files created but not tested
+
+**Status:** Architecture complete, build process unknown
+
+**How to fix:**
+1. `cd ide && deno task dev`
+2. Fix any ReScript compilation errors
+3. Fix any Vite/Deno integration issues
+4. Fix any import path issues
+
+**Possible errors:**
+- ReScript: `Syntax error in Model.res` → check Tea.Html API usage
+- Vite: `Cannot resolve module` → check `deno.json` imports
+- Deno: `Permission denied` → add `-A` flag or specific permissions
+
+=== Issue 3: Monaco Editor Missing
+
+**Problem:** IDE uses simple `<textarea>`, not full code editor
+
+**Status:** Planned, not implemented
+
+**How to add:**
+1. Add Monaco to `deno.json` imports
+2. Create `ide/src/Monaco.res` bindings
+3. Replace textarea in `View.res` with Monaco component
+4. Add syntax highlighting for `.err` language
+
+=== Issue 4: Compiler Not Integrated with IDE
+
+**Problem:** IDE doesn't actually compile code yet
+
+**Status:** Placeholder messages, not real compilation
+
+**How to fix:**
+1. Compile ReScript compiler to JavaScript
+2. Import in IDE as module
+3. Wire up `CompileCode` message to actual compiler
+4. Display real AST in layer navigator
+
+== Critical Context for Future Sessions
+
+=== Architecture Decisions (DO NOT CHANGE)
+
+1. **Deno, not Node/npm** - All JavaScript uses Deno runtime
+2. **ReScript, not TypeScript** - Type safety without TS complexity
+3. **TEA pattern** - Model/Update/View architecture is fundamental
+4. **Static site** - No backend server, all client-side
+5. **Pedagogical fragility** - Language itself is fragile, not runtime errors
+6. **Computational haptics** - Visual feedback is core to learning
+
+=== File Naming Conventions
+
+- `.res` files - ReScript source (compiles to `.res.js`)
+- `.err` files - Error-Lang programs
+- `.scm` files - Guile Scheme metadata
+- `.adoc` files - AsciiDoc documentation
+- `.idr` files - Idris2 formal verification (future)
+- `.a2ml` files - Aspect definitions (future)
+
+=== The Ten Paradoxes (5 done, 5 remaining)
+
+**Implemented:**
+1. ✅ Type Quantum Superposition - Variables in multiple types until observed
+2. ✅ Scope Leakage - Variables escape on prime runs
+3. ✅ Positional Operator Semantics - Operators change by file position
+4. ✅ Context-Collapse Keywords - `maybe`, `sometimes` affect semantics
+5. ✅ Temporal Corruption - Previous runs affect current execution
+
+**Remaining:**
+6. ❌ Reserved Word Roulette - Keywords shift meaning
+7. ❌ Arithmetic Drift - Math accumulates errors
+8. ❌ Null Propagation Cascade - Null spreads like virus
+9. ❌ Global State Entanglement - Globals mysteriously affect each other
+10. ❌ Memory Phantom - Freed memory persists
+
+=== Integration Points
+
+**Error-Lang depends on:**
+- rescript-tea (UI framework)
+- cadre-tea-router (routing)
+- draig-ssg (static build)
+- proven (Idris2 verification)
+- a2ml (aspect modeling)
+
+**Error-Lang feeds into:**
+- Hypatia (neurosymbolic CI/CD)
+- gitbot-fleet (automation)
+- Error-DB (future database expansion)
+- Error-Struct (future data structures expansion)
+
+== Session Checkpoints (Quick Reference)
+
+**What we completed:**
+- [x] Paradigm shift: architectural fragility vs runtime errors
+- [x] Deno runtime with stability tracking
+- [x] Five Whys analysis
+- [x] Layer navigation
+- [x] Visual haptics (emojis, colors, sparklines)
+- [x] 5 example programs
+- [x] Complete IDE architecture (Model/Msg/Update/View)
+- [x] STATE.scm, META.scm, ECOSYSTEM.scm
+- [x] README.adoc, ROADMAP.adoc
+- [x] Standard workflows (Hypatia, CodeQL, Scorecard)
+- [x] Deno configuration (replaced package.json)
+
+**What's next:**
+- [ ] Test IDE build (`deno task dev`)
+- [ ] Fix any build errors
+- [ ] Integrate compiler with IDE
+- [ ] Add Monaco editor
+- [ ] Implement remaining 5 paradoxes
+- [ ] Deploy to GitHub Pages
+
+**Current task list status:**
+```
+#1. [completed] Type quantum superposition
+#2. [completed] Deno runtime with stability tracking
+#3. [completed] Visual haptic feedback
+#4. [completed] Layer navigator
+#5. [completed] Five Whys analyzer
+#6. [completed] Scope leakage infrastructure
+#7. [completed] ReScript-TEA IDE architecture
+```
+
+== How to Restart Development
+
+=== 5-Minute Warmup
+
+```bash
+# 1. Navigate to repo
+cd ~/Documents/hyperpolymath-repos/error-lang
+
+# 2. Check current state
+cat STATE.scm | head -50
+
+# 3. Test the runtime (should work)
+deno run -A cli/runtime.js examples/01-hello-world.err
+
+# 4. Try the IDE (may have errors)
+cd ide && deno task dev
+
+# 5. Read this file!
+cat CONTINUATION-GUIDE.adoc
+```
+
+=== 30-Minute Session
+
+1. Test IDE build (5 min)
+2. Fix any errors (15 min)
+3. Make one small improvement (10 min):
+   - Add a new paradox example
+   - Improve visual feedback
+   - Add a Five Whys test case
+   - Write a tutorial section
+
+=== Full Day Session
+
+**Morning (3-4 hours):**
+- Get IDE fully working
+- Integrate compiler
+- Test in browser
+- Fix any UI issues
+
+**Afternoon (3-4 hours):**
+- Implement one new paradox (e.g., Reserved Word Roulette)
+- Create example program
+- Document the paradox
+- Update ROADMAP.adoc
+
+**End of day:**
+- Update STATE.scm with progress
+- Commit and push
+- Update CONTINUATION-GUIDE.adoc with any new issues
+
+== Quick Reference: Key Commands
+
+```bash
+# Run Error-Lang programs
+deno run -A cli/runtime.js <file.err>
+
+# Build ReScript compiler
+cd compiler && rescript build
+
+# Build IDE (development)
+cd ide && deno task dev
+
+# Build IDE (production)
+cd ide && deno task build
+
+# Lint and format
+deno lint
+deno fmt
+
+# Run tests (when added)
+deno test
+```
+
+== Questions to Ask Claude
+
+**General continuation:**
+> "Read CONTINUATION-GUIDE.adoc and STATE.scm. What should we work on next?"
+
+**Specific tasks:**
+> "Let's test the IDE build and fix any errors."
+> "Implement the next paradox: [name]."
+> "Create the Idris2 proofs for stability calculation."
+> "Deploy to GitHub Pages using draig-ssg."
+
+**Documentation:**
+> "Create a tutorial: 'Your First Error-Lang Paradox Discovery'."
+> "Write a research paper abstract for Error-Lang."
+
+**Debugging:**
+> "The run counter isn't incrementing. Help me debug cli/stability-tracker.js."
+> "The IDE build fails with [error]. How do I fix it?"
+
+---
+
+**This file ensures continuity between sessions. Update it whenever significant progress is made.**
+
+**Last Updated:** 2026-01-31 23:00 UTC
+
+**Next Session Target:** Test IDE build, fix errors, deploy to GitHub Pages

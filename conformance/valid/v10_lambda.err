@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Conformance: lambda expression (anonymous function)
+
+function apply(f, x)
+    return f(x)
+end
+
+main
+    let double = function(x) return x * 2 end
+    let result = apply(double, 5)
+    println("result =", result)
+end

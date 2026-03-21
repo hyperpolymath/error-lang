@@ -1,0 +1,542 @@
+// SPDX-License-Identifier: PMPL-1.0-or-later
+= The Error Ecosystem: Educational Fragility Framework
+:toc:
+:sectnums:
+:source-highlighter: rouge
+
+== Vision: Fragility as Pedagogy
+
+**Core insight:** The best way to learn robustness is to experience fragility.
+
+Traditional education: "Here's how to do it right."
+Error Ecosystem: "Here's how things break. Now make them strong."
+
+== The Error Ecosystem Components
+
+```
+                  ERROR ECOSYSTEM
+                        │
+        ┌───────────────┼───────────────┐
+        │               │               │
+    Error-Lang      Error-DB      Error-Struct
+        │               │               │
+   Programming     Databases      Data Structures
+    Languages                      & Algorithms
+        │               │               │
+        └───────────────┴───────────────┘
+                        │
+                Unified Principle:
+            Amplify Consequences
+            Diagnose Instability
+              Robustify System
+```
+
+=== Error-Lang (Programming Languages)
+
+**Status:** In development
+**Focus:** Language design, compilers, type systems
+**Fragility:** Grammar paradoxes, semantic instabilities
+**Learning:** How language design affects program correctness
+
+=== Error-DB (Databases & Systems)
+
+**Status:** Proposed
+**Focus:** Database design, transactions, consistency
+**Fragility:** Schema anomalies, race conditions, data corruption
+**Learning:** CAP theorem, ACID properties, normalization
+
+=== Error-Struct (Data Structures & Algorithms)
+
+**Status:** Proposed
+**Focus:** Data organization, algorithm complexity
+**Fragility:** Performance cliffs, memory fragmentation
+**Learning:** Big-O analysis, cache effects, tradeoffs
+
+== Error-DB: The Fragile Database
+
+=== Core Concept
+
+A database that **exaggerates** the consequences of poor design:
+
+```sql
+-- Normal database: Subtle anomalies
+INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com');
+-- Duplicate email might cause issues... eventually
+
+-- Error-DB: Immediate consequence amplification
+INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com');
+-- Stability: 100
+
+INSERT INTO users (name, email) VALUES ('Bob', 'alice@example.com');
+-- ⚠️ DUPLICATE DETECTED
+-- Stability: 70 (-30 for data integrity violation)
+-- All queries on 'email' now flagged as unstable
+```
+
+=== Fragility Dimensions
+
+==== 1. Schema Fragility (Normalization Paradoxes)
+
+**Denormalized schema:**
+```sql
+CREATE TABLE orders (
+    order_id INT,
+    customer_name VARCHAR,
+    customer_email VARCHAR,  -- ⚠️ Duplication
+    customer_phone VARCHAR,  -- ⚠️ Duplication
+    product_name VARCHAR,
+    product_price DECIMAL
+);
+
+-- Insert data
+INSERT INTO orders VALUES
+    (1, 'Alice', 'alice@ex.com', '555-1234', 'Widget', 10.00),
+    (2, 'Alice', 'alice@ex.com', '555-1234', 'Gadget', 15.00);
+
+-- Update customer email
+UPDATE orders SET customer_email = 'alice@new.com' WHERE order_id = 1;
+
+-- ⚠️ ANOMALY DETECTED: Update anomaly
+-- Alice now has TWO different emails in database!
+-- Stability: 60 (-40 for data inconsistency)
+-- Affected rows: 2
+```
+
+**Error-DB visualizes:**
+```
+┌─────────────────────────────────────────────┐
+│ 💥 UPDATE ANOMALY CASCADE                   │
+├─────────────────────────────────────────────┤
+│ Row 1: customer_email = 'alice@new.com'     │
+│ Row 2: customer_email = 'alice@ex.com'      │
+│                                              │
+│ Same customer, different data!               │
+│                                              │
+│ Root Cause: Denormalized schema              │
+│ Layer: Schema Design (Layer 1)              │
+│                                              │
+│ Fix: Normalize to 3NF:                       │
+│   CREATE TABLE customers ...                 │
+│   CREATE TABLE orders ...                    │
+│   → Stability: 100                           │
+└─────────────────────────────────────────────┘
+```
+
+==== 2. Transaction Fragility (ACID Violations)
+
+**Dirty reads amplified:**
+```sql
+-- Session 1: Transfer money
+BEGIN TRANSACTION;
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+-- Balance: $500 → $400 (not committed yet)
+
+-- Session 2: Check balance
+SELECT balance FROM accounts WHERE id = 1;
+-- ⚠️ DIRTY READ: Sees $400 (uncommitted)
+-- Stability: 40 (-60 for isolation violation)
+
+-- Session 1: Rollback
+ROLLBACK;
+-- Balance returns to $500, but Session 2 already made decision on $400!
+```
+
+**Error-DB shows:**
+```
+⚠️ ISOLATION VIOLATION DETECTED
+
+Transaction Timeline:
+  T1: ├─BEGIN──UPDATE($400)───────ROLLBACK─┤
+  T2:            ├─READ($400)─DECIDE─✗
+
+Consequence: T2 made decision based on uncommitted data
+Stability Impact: -60 (critical)
+
+ACID Property Violated: Isolation
+Isolation Level: READ UNCOMMITTED (dangerous!)
+
+Fix: Use READ COMMITTED or higher
+→ Stability: 100
+```
+
+==== 3. Index Fragility (Performance Cliffs)
+
+**Missing index:**
+```sql
+-- No index on 'email'
+CREATE TABLE users (
+    id INT PRIMARY KEY,
+    name VARCHAR,
+    email VARCHAR
+);
+
+-- Insert 1 million rows...
+
+-- Query without index
+SELECT * FROM users WHERE email = 'alice@example.com';
+-- ⚠️ FULL TABLE SCAN
+-- Time: 5000ms (Error-DB amplifies from ~500ms)
+-- Stability: 50 (-50 for performance cliff)
+```
+
+**With index:**
+```sql
+CREATE INDEX idx_email ON users(email);
+
+SELECT * FROM users WHERE email = 'alice@example.com';
+-- ✓ INDEX SEEK
+-- Time: 5ms
+-- Stability: 100
+```
+
+**Error-DB visualization:**
+```
+🐌 PERFORMANCE CLIFF DETECTED
+
+Query Plan:
+  ┌─────────────────────────────┐
+  │ TABLE SCAN: users           │
+  │ Rows examined: 1,000,000    │
+  │ Rows returned: 1            │
+  │ Selectivity: 0.0001%        │
+  └─────────────────────────────┘
+
+Consequence: O(n) scan for single row lookup
+Amplified Time: 5000ms (10x normal)
+Stability: -50
+
+Alternative (with index):
+  ┌─────────────────────────────┐
+  │ INDEX SEEK: idx_email       │
+  │ Rows examined: 1            │
+  │ Rows returned: 1            │
+  │ Selectivity: 100%           │
+  └─────────────────────────────┘
+
+Time: 5ms (1000x faster!)
+Stability: 100
+```
+
+==== 4. Concurrency Fragility (Race Conditions)
+
+**Lost update amplified:**
+```sql
+-- Two sessions try to increment counter
+
+-- Session 1:
+SELECT counter FROM metrics WHERE id = 1;  -- Reads: 100
+-- ... processing ...
+UPDATE metrics SET counter = 101 WHERE id = 1;
+
+-- Session 2 (interleaved):
+SELECT counter FROM metrics WHERE id = 1;  -- Reads: 100
+-- ... processing ...
+UPDATE metrics SET counter = 101 WHERE id = 1;
+
+-- ⚠️ LOST UPDATE: Counter should be 102, but is 101!
+-- Error-DB amplifies: Lose 50% of updates (vs normal 1-2%)
+-- Stability: 30 (-70 for race condition)
+```
+
+**Fix with locking:**
+```sql
+-- Session 1:
+BEGIN TRANSACTION;
+SELECT counter FROM metrics WHERE id = 1 FOR UPDATE;  -- Lock row
+UPDATE metrics SET counter = counter + 1 WHERE id = 1;
+COMMIT;
+
+-- Session 2 waits...
+-- ✓ No lost updates
+-- Stability: 100
+```
+
+=== CAP Theorem Visualization
+
+Error-DB makes CAP theorem **tangible**:
+
+```
+         Consistency
+              ▲
+             ╱ ╲
+            ╱   ╲
+           ╱  ?  ╲      Choose 2 of 3
+          ╱       ╲
+         ╱         ╲
+        └───────────┘
+   Availability   Partition Tolerance
+
+Mode 1: CP (Consistency + Partition Tolerance)
+  Network partition → System becomes unavailable
+  Stability: 60 (-40 for availability loss)
+
+Mode 2: AP (Availability + Partition Tolerance)
+  Network partition → Eventual consistency only
+  Stability: 70 (-30 for consistency loss)
+
+Mode 3: CA (Consistency + Availability)
+  Network partition → System fails completely
+  Stability: 0 (catastrophic failure)
+```
+
+Students can **trigger network partitions** and see consequences immediately!
+
+== Error-Struct: Fragile Data Structures
+
+=== Core Concept
+
+Data structures that reveal their performance characteristics **dramatically**:
+
+```rescript
+// Array vs Linked List for random access
+
+let array = [1, 2, 3, ..., 1000000]
+let list = LinkedList.from_array(array)
+
+// Random access in array
+let x = array[500000]
+// Time: 1ns (O(1))
+// Stability: 100
+
+// Random access in linked list
+let y = list.get(500000)
+// Time: 500ms (Error-Struct amplifies from ~50ms)
+// ⚠️ PERFORMANCE CLIFF: O(n) for random access
+// Stability: 30 (-70 for wrong data structure choice)
+```
+
+=== Fragility Dimensions
+
+==== 1. Algorithm Complexity Cliffs
+
+**Bubble Sort vs Quick Sort:**
+```rescript
+let data = [1..10000]  // 10K elements
+
+// Bubble sort
+let sorted1 = bubble_sort(data)
+// Time: 10,000ms (Error-Struct amplifies 100x)
+// Complexity: O(n²)
+// Stability: 20 (-80 for inefficient algorithm)
+
+// Quick sort
+let sorted2 = quick_sort(data)
+// Time: 10ms
+// Complexity: O(n log n)
+// Stability: 100
+```
+
+**Error-Struct shows:**
+```
+🐌 COMPLEXITY CLIFF DETECTED
+
+Algorithm: bubble_sort
+Input size: 10,000
+Operations: 100,000,000 (n²)
+Time: 10,000ms (amplified 100x)
+
+┌─────────────────────────────────┐
+│ Time Complexity Comparison       │
+├─────────────────────────────────┤
+│ n=100     n=1K    n=10K   n=100K│
+│ Bubble: 0.1ms   10ms   10s    17m│
+│ Quick:  0.01ms  0.1ms  10ms  100ms│
+└─────────────────────────────────┘
+
+Stability Impact: -80
+Recommendation: Use O(n log n) sorting algorithm
+```
+
+==== 2. Memory Fragmentation
+
+**Repeated allocations:**
+```rescript
+// Naive string concatenation
+let mut result = ""
+for i in 1..10000
+    result = result ++ "x"  // ⚠️ Allocates new string each time!
+end
+
+// Memory allocations: 10,000
+// Total memory used: 50MB (Error-Struct amplifies waste)
+// Fragmentation: 95% (memory is mostly copies)
+// Stability: 25 (-75 for memory waste)
+```
+
+**Optimized version:**
+```rescript
+let builder = StringBuilder.new()
+for i in 1..10000
+    builder.append("x")  // ✓ Amortized O(1), no fragmentation
+end
+let result = builder.to_string()
+
+// Memory allocations: ~10 (exponential growth strategy)
+// Total memory used: 10KB
+// Fragmentation: 0%
+// Stability: 100
+```
+
+==== 3. Cache Locality Effects
+
+**Array of Structs vs Struct of Arrays:**
+```rescript
+// AoS (Array of Structs) - poor cache locality
+type Particle = { x: float, y: float, z: float, mass: float }
+let particles_aos = Array.init(1000000, i =>
+    Particle { x: 0.0, y: 0.0, z: 0.0, mass: 1.0 }
+)
+
+// Update all x coordinates
+for particle in particles_aos
+    particle.x = particle.x + 1.0
+end
+// Time: 100ms (cache misses!)
+// Cache hit rate: 25%
+// Stability: 60 (-40 for poor locality)
+
+// SoA (Struct of Arrays) - excellent cache locality
+type ParticlesSoA = {
+    x: Array<float>,
+    y: Array<float>,
+    z: Array<float>,
+    mass: Array<float>
+}
+
+let particles_soa = ParticlesSoA {
+    x: Array.init(1000000, _ => 0.0),
+    y: Array.init(1000000, _ => 0.0),
+    z: Array.init(1000000, _ => 0.0),
+    mass: Array.init(1000000, _ => 1.0)
+}
+
+// Update all x coordinates
+for i in 0..1000000
+    particles_soa.x[i] = particles_soa.x[i] + 1.0
+end
+// Time: 10ms (sequential access!)
+// Cache hit rate: 95%
+// Stability: 100
+```
+
+== Unified Educational Framework
+
+=== The Diagnosis-Robustification Cycle
+
+```
+1. EXPERIENCE FRAGILITY
+   ↓
+   Student encounters instability
+   (low stability score, poor performance, data corruption)
+   ↓
+2. DIAGNOSE ROOT CAUSE
+   ↓
+   Five Whys, Fishbone diagrams, Layer analysis
+   Trace from symptom → root cause
+   ↓
+3. UNDERSTAND TRADEOFFS
+   ↓
+   Why does the fragile version exist?
+   What are the alternatives?
+   What does each cost?
+   ↓
+4. ROBUSTIFY SYSTEM
+   ↓
+   Apply fix, see stability increase
+   Understand WHY this works
+   ↓
+5. INTERNALIZE LESSON
+   ↓
+   Add to mental model
+   Apply to new situations
+```
+
+=== Cross-Domain Patterns
+
+These patterns appear across **all three** systems:
+
+| Pattern | Error-Lang | Error-DB | Error-Struct |
+|---------|-----------|----------|--------------|
+| **Mutability** | Mutable vars unstable | Non-MVCC unstable | In-place update cache issues |
+| **Indexing** | Variable lookup | Query performance | Array vs hash table |
+| **Concurrency** | Race conditions | Transaction conflicts | Thread-unsafe structures |
+| **Complexity** | O(n²) grammar | Full table scan | Bubble sort |
+| **Locality** | Stack vs heap | Index clustering | AoS vs SoA |
+
+Students see the **same principles** across domains!
+
+=== Integration Architecture
+
+```
+┌────────────────────────────────────────────┐
+│  Error Ecosystem Studio                    │
+│  (Unified IDE - ReScript + TEA)            │
+├────────────────────────────────────────────┤
+│                                             │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
+│  │Error-Lang│  │Error-DB  │  │Error-Struct│ │
+│  │ Editor   │  │ Query    │  │ Visualizer│ │
+│  └──────────┘  └──────────┘  └──────────┘ │
+│                                             │
+│  ┌────────────────────────────────────────┐│
+│  │ Unified Stability Dashboard             ││
+│  │ - Language stability: 85                ││
+│  │ - Database stability: 70                ││
+│  │ - Algorithm stability: 90               ││
+│  │ → Overall: 82/100                       ││
+│  └────────────────────────────────────────┘│
+│                                             │
+│  ┌────────────────────────────────────────┐│
+│  │ Cross-Domain Analysis                   ││
+│  │ - Five Whys (works across all)          ││
+│  │ - Fishbone (multi-system causality)    ││
+│  │ - Layer Navigator (grammar, schema, DS)││
+│  └────────────────────────────────────────┘│
+│                                             │
+└────────────────────────────────────────────┘
+```
+
+== Curriculum Integration
+
+=== Year 2: Foundations
+- **Fall:** Error-Lang (Programming Languages & Compilers)
+- **Spring:** Error-Struct (Data Structures & Algorithms)
+
+=== Year 3: Systems
+- **Fall:** Error-DB (Databases & Systems)
+- **Spring:** Capstone (Build robust system using all three)
+
+=== Capstone Project Example
+
+**Task:** Build a robust e-commerce system
+
+Students must:
+1. Design **stable language** for business rules (Error-Lang)
+2. Design **normalized database** schema (Error-DB)
+3. Choose **efficient data structures** for caching, search, recommendations (Error-Struct)
+4. Demonstrate **systems thinking** across all layers
+5. Use diagnosis tools (Five Whys, Fishbone, Layer Analysis)
+6. Achieve **95+ stability** across all components
+
+== Success Metrics (Across Ecosystem)
+
+Students graduate when they can:
+
+✓ Trace bugs across layers (code → DB → memory)
+✓ Apply Five Whys to any technical problem
+✓ Choose data structures based on access patterns
+✓ Design database schemas in 3NF
+✓ Understand CAP theorem through experience
+✓ Optimize for cache locality
+✓ Write code with 95+ stability consistently
+✓ **Think in systems**, not just solutions
+
+== The Vision
+
+> "After the Error Ecosystem, students don't just write code - they engineer systems. They don't just fix bugs - they diagnose root causes. They don't just learn patterns - they understand tradeoffs."
+
+This is education through **consequence amplification** - making invisible things visible, fast feedback loops, and systems thinking.
+
+---
+
+Error Ecosystem: Turning fragility into pedagogy, one layer at a time.

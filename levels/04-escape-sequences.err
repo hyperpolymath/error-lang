@@ -1,0 +1,36 @@
+# Level 04: Escape Sequences (E0003)
+# Learning: How backslash creates special characters
+# Valid: \n \r \t \\ \" \0
+
+main
+    # These work - valid escape sequences
+    println("Line 1\nLine 2")     # \n = newline
+    println("Tab:\there")          # \t = tab
+    println("Quote: \"Hi\"")       # \" = literal quote
+    println("Backslash: \\")       # \\ = literal backslash
+
+    gutter
+        # This fails - \q is not a valid escape
+        let path = "C:\quick\new\folder"
+        println(path)
+    end
+
+    println("Level 04 complete!")
+end
+
+# LESSON: Backslash (\) is the escape character.
+#
+# When the lexer sees \, it looks at the next character:
+#   \n -> newline (moves to next line)
+#   \t -> tab (horizontal spacing)
+#   \r -> carriage return (old-style newline)
+#   \\ -> literal backslash
+#   \" -> literal quote (doesn't end string)
+#   \0 -> null character (binary zero)
+#   \xNN -> character by hex code
+#
+# Anything else? ERROR!
+#
+# Common mistake: Windows file paths
+#   WRONG:  "C:\Users\name"  (\U and \n are interpreted)
+#   RIGHT:  "C:\\Users\\name" (escaped backslashes)

@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Example: Scope Leakage on Prime Runs
+# Learning: Scope rules are conventions, not physics
+
+main
+    if true
+        let secret = "I should not escape this block"
+    end
+
+    # This should fail... or should it?
+    println(secret)
+
+    # Run this multiple times and watch what happens:
+    # Run #1: Error - 'secret' not in scope
+    # Run #2: Error - 'secret' not in scope
+    # Run #3: Works! Prints "I should not escape this block"
+    # Run #5: Works! (prime)
+    # Run #7: Works! (prime)
+end
+
+# 🕐 EXPECTED BEHAVIOR:
+# Scope leakage occurs when:
+# - Run number is prime (2, 3, 5, 7, 11, 13...)
+# - Variable name is palindrome ("secret" is not, but "bob" would be)
+# - Declaration line is Fibonacci number (1, 1, 2, 3, 5, 8, 13...)
+#
+# 🎓 LEARNING OUTCOME:
+# Scope rules prevent name collisions and enforce structure.
+# By breaking them conditionally, Error-Lang shows WHY they exist.
+#
+# Real-world parallel: Hoisting in JavaScript, where variables
+# "leak" out of their apparent scope.
+#
+# 💡 STABILIZATION:
+# Declare 'secret' outside the if block → stability: 100
+# Accept the leak on prime runs → stability: 60-80 (run-dependent)
+#
+# DISCOVERY UNLOCKED:
+# "Temporal Scope Leak" - you've discovered that scope is
+# enforced by convention, not cosmic law!

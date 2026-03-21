@@ -1,0 +1,243 @@
+// SPDX-License-Identifier: PMPL-1.0-or-later
+= Error-Lang Studio: The Language Stabilizer IDE
+:toc:
+:sectnums:
+
+== What is Error-Lang Studio?
+
+Error-Lang Studio is an interactive IDE for exploring the Error-Lang pedagogical language. Unlike traditional IDEs that assume code correctness, Error-Lang Studio is a **language archaeology tool** that helps students discover and stabilize intentionally fragile code.
+
+=== Core Features
+
+* **Computational Haptics** - Feel code decisions through visual feedback
+* **Real-Time Stability Tracking** - 0-100 score updated as you type
+* **Five-Layer Navigation** - Explore Grammar → Parser → AST → Semantics → Runtime
+* **Five Whys Analysis** - Trace symptoms to root design decisions
+* **Paradox Discovery** - Find language contradictions through exploration
+* **Quantum Type Visualization** - See variables in superposition states
+
+== Technology Stack
+
+Built with:
+
+* **ReScript** - Type-safe functional language compiling to JavaScript
+* **ReScript-TEA** - The Elm Architecture for reactive UI
+* **cadre-tea-router** - Client-side routing
+* **draig-ssg** - Static site generation
+* **proven (Idris2)** - Formally verified core algorithms
+* **Vite** - Fast build tool and dev server
+
+== Architecture
+
+Error-Lang Studio follows The Elm Architecture (TEA):
+
+```
+┌─────────────────────────────────────┐
+│           TEA Pattern               │
+├─────────────────────────────────────┤
+│                                     │
+│  Model (src/Model.res)              │
+│    ↓                                │
+│  Update (src/Update.res)            │
+│    ↓                                │
+│  View (src/View.res)                │
+│    ↓                                │
+│  Main (src/Main.res)                │
+│                                     │
+└─────────────────────────────────────┘
+```
+
+=== Directory Structure
+
+```
+ide/
+├── src/
+│   ├── Model.res          # Application state
+│   ├── Msg.res            # Event messages
+│   ├── Update.res         # State transitions
+│   ├── View.res           # UI rendering
+│   ├── Main.res           # Entry point
+│   └── styles.css         # Styles
+├── public/                # Static assets
+├── index.html             # HTML template
+├── package.json           # Dependencies
+├── rescript.json          # ReScript config
+├── vite.config.js         # Build config
+├── ARCHITECTURE.adoc      # Architecture design
+├── INTEGRATION.adoc       # Ecosystem integration
+└── README.adoc            # This file
+```
+
+== Development
+
+=== Prerequisites
+
+* Node.js 18+ (for build tools)
+* npm or yarn
+
+=== Setup
+
+```bash
+cd ide
+npm install
+```
+
+=== Development Mode
+
+```bash
+npm run dev
+```
+
+This starts:
+- ReScript compiler in watch mode (compiles `.res` → `.res.js`)
+- Vite dev server on http://localhost:3000 (hot reload)
+
+=== Production Build
+
+```bash
+npm run build
+```
+
+Outputs to `dist/` directory - a fully static site deployable to:
+- GitHub Pages
+- Netlify
+- Vercel
+- Any CDN
+
+=== Deployment with draig-ssg
+
+```bash
+# From project root
+draig build
+draig deploy gh-pages
+```
+
+This uses the configuration in `draig.scm` to build and deploy the static site.
+
+== Component Guide
+
+=== Model (src/Model.res)
+
+Defines the complete application state:
+
+* **Code state** - Current code, cursor position, selection
+* **Compilation state** - AST, parse errors
+* **Stability tracking** - Score, history, factors
+* **Layer navigation** - Current layer, layer views
+* **Analysis results** - Five Whys, paradoxes, quantum variables
+* **UI state** - Active panel, theme, sidebar visibility
+* **Execution state** - Running status, output, run number
+
+=== Messages (src/Msg.res)
+
+All possible events:
+
+* Code editing events (CodeChanged, CursorMoved)
+* Compilation events (CompileCode, CompilationSuccess)
+* Execution events (RunProgram, StepProgram)
+* Layer navigation (NavigateToLayer, SelectASTNode)
+* Analysis events (AnalyzeStability, RunFiveWhys)
+* UI events (SwitchPanel, ChangeTheme)
+* Router events (RouteChanged, NavigateTo)
+
+=== Update (src/Update.res)
+
+Pure state transition function: `(msg, model) → (model, cmd)`
+
+Handles all messages and produces new state. Commands trigger side effects (compilation, analysis).
+
+=== View (src/View.res)
+
+Pure rendering function: `model → html`
+
+Renders the complete UI:
+
+* **Top bar** - Run controls, theme selector
+* **Left sidebar** - Layer navigator
+* **Center panel** - Code editor, dashboard, analyzer
+* **Right sidebar** - Stability indicator, quantum variables, paradoxes
+* **Bottom panel** - Runtime output
+
+=== Main (src/Main.res)
+
+Application entry point - wires up Model, Update, and View into a running TEA program.
+
+== Integration Points
+
+=== cadre-tea-router
+
+Client-side routing for deep linking:
+
+* `/` - Home
+* `/edit` - Code editor
+* `/edit/:file` - Edit specific file
+* `/explore/:layer` - Layer view
+* `/analyze/:mode` - Analysis mode
+* `/docs/:page` - Documentation
+
+=== draig-ssg
+
+Static site generation for deployment. Configuration in `draig.scm` at project root.
+
+=== proven (Idris2)
+
+Formally verified core algorithms:
+
+* **Stability calculation** - Provably in range [0, 100]
+* **Scope leakage rules** - Deterministic paradox detection
+* **Type collapse** - Quantum type resolution with correctness guarantee
+
+Idris2 code in `../proven/src/` compiles to JavaScript FFI bindings.
+
+=== a2ml
+
+Aspect-oriented paradox definitions in `../aspects/`:
+
+* `positional-operators.a2ml` - Operators change by position
+* `scope-leakage.a2ml` - Temporal scope violations
+* `type-superposition.a2ml` - Quantum type system
+
+== Future Enhancements
+
+=== Phase 2: Advanced Visualizations
+
+* Animated stability ripples
+* Cascade effect visualization
+* Interactive AST tree
+* Grammar rule highlighting in editor
+
+=== Phase 3: Monaco Editor Integration
+
+Replace simple textarea with full Monaco editor:
+
+* Syntax highlighting
+* Error squiggles
+* Code completion
+* Breakpoint debugging
+
+=== Phase 4: Collaborative Features
+
+* Share code snippets
+* Paradox discovery leaderboard
+* Student/teacher modes
+* Code review annotations
+
+=== Phase 5: Mobile App
+
+Using Tauri 2.0+ for iOS/Android deployment.
+
+== Contributing
+
+See `../CONTRIBUTING.md` for contribution guidelines.
+
+== License
+
+PMPL-1.0-or-later
+
+See `../LICENSE` for full text.
+
+== Contact
+
+Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+
+GitHub: https://github.com/hyperpolymath/error-lang

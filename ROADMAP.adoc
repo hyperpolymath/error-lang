@@ -1,0 +1,405 @@
+// SPDX-License-Identifier: PMPL-1.0-or-later
+= Error-Lang Development Roadmap
+:toc:
+:sectnums:
+
+== Overview
+
+This roadmap tracks Error-Lang development from alpha (current) to production-ready educational tool.
+
+**Current Status:** Alpha - Foundation Complete (35% overall)
+
+== Phases
+
+=== Phase 1: Foundation ✅ COMPLETE
+
+**Goal:** Core paradox infrastructure and documentation
+
+**Completed:**
+- [x] Stability tracking system (0-100 score)
+- [x] Paradox detection (context-collapse, positional operators)
+- [x] Five Whys root cause analyzer
+- [x] Layer navigation infrastructure
+- [x] Visual haptic feedback (emojis, colors, sparklines)
+- [x] Example programs (5 paradoxes)
+- [x] Complete documentation (philosophy, framework, ecosystem)
+- [x] SCM files (STATE.scm, META.scm, ECOSYSTEM.scm)
+- [x] Standard workflows (Hypatia, CodeQL, Scorecard, etc.)
+
+**Deliverables:**
+- Working Deno runtime with stability tracking
+- 5 example programs demonstrating paradoxes
+- Educational framework documentation
+- Error Ecosystem vision document
+
+=== Phase 2: IDE Development 🔄 IN PROGRESS (40% complete)
+
+**Goal:** Functional IDE with layer navigation and stability dashboard
+
+**Status:**
+- [x] ReScript-TEA architecture designed
+- [x] Model/Msg/Update/View implemented
+- [x] Build configuration (Deno + Vite)
+- [x] Styling (dark theme, computational haptics)
+- [x] Documentation (ARCHITECTURE.adoc, INTEGRATION.adoc, README.adoc)
+- [ ] Test build process (`deno task dev`)
+- [ ] Fix any build errors
+- [ ] Monaco editor integration
+- [ ] Compiler integration (compile .err files in browser)
+- [ ] State persistence (localStorage/IndexedDB)
+
+**Timeline:** 2-3 weeks
+
+**Deliverables:**
+- Functional IDE at https://hyperpolymath.github.io/error-lang
+- Layer navigator (5 layers: Grammar → Runtime)
+- Real-time stability dashboard
+- Five Whys analyzer UI
+
+=== Phase 3: Complete Paradoxes (planned)
+
+**Goal:** Implement all 10 core paradoxes
+
+**Remaining Paradoxes:**
+- [ ] Reserved Word Roulette (keywords shift meaning)
+- [ ] Arithmetic Drift (math errors accumulate)
+- [ ] Null Propagation Cascade (null spreads)
+- [ ] Global State Entanglement (globals affect each other)
+- [ ] Memory Phantom (freed memory persists)
+
+**Already Implemented:**
+- [x] Type Quantum Superposition
+- [x] Scope Leakage (prime runs)
+- [x] Positional Operator Semantics
+- [x] Context-Collapse Keywords
+- [x] Temporal Corruption (historical state)
+
+**Timeline:** 3-4 weeks
+
+**Deliverables:**
+- 10 example programs (one per paradox)
+- Complete paradox documentation
+- Test suite for each paradox
+- Paradox discovery achievements (gamification)
+
+=== Phase 4: Formal Verification (planned)
+
+**Goal:** Idris2 proofs for core algorithms
+
+**Components:**
+- [ ] `proven/src/Stability.idr` - Stability calculation with proofs
+- [ ] `proven/src/Scope.idr` - Scope leakage rules with proofs
+- [ ] `proven/src/TypeCollapse.idr` - Type collapse correctness
+- [ ] FFI bindings (Idris2 → JavaScript)
+- [ ] Integration with ReScript compiler
+
+**Proofs Required:**
+1. Stability score always in [0, 100]
+2. Scope leakage deterministic (same inputs → same output)
+3. Type collapse picks from valid possibilities only
+4. Paradox detection reproducible
+
+**Timeline:** 4-6 weeks (requires Idris2 expertise)
+
+**Deliverables:**
+- Formally verified core algorithms
+- Proof documentation (for advanced students)
+- FFI bindings in `compiler/src/bindings/Proven.res`
+- Trust badge: "Formally Verified Core"
+
+=== Phase 5: Advanced Visualizations (planned)
+
+**Goal:** Animated feedback, interactive exploration
+
+**Features:**
+- [ ] Animated stability ripples (mutations propagate visually)
+- [ ] Cascade effect visualization (null propagation animation)
+- [ ] Interactive AST tree (click to explore nodes)
+- [ ] Grammar rule highlighting (show which rules matched)
+- [ ] Fishbone diagram generator (Five Whys visualization)
+- [ ] Stability history timeline (scrub through time)
+- [ ] Audio feedback (optional, sonic cues for instability)
+
+**Timeline:** 3-4 weeks
+
+**Deliverables:**
+- Animated feedback system
+- Interactive visualizations
+- Accessibility options (disable animations, audio)
+
+=== Phase 6: Static Site Deployment (planned)
+
+**Goal:** Production deployment with draig-ssg
+
+**Tasks:**
+- [ ] Create `draig.scm` configuration
+- [ ] Pre-render routes for SEO
+- [ ] Asset optimization (minification, compression)
+- [ ] PWA configuration (offline support)
+- [ ] Deploy to GitHub Pages
+- [ ] Custom domain setup (if applicable)
+- [ ] CDN configuration (CloudFlare/Fastly)
+
+**Timeline:** 1-2 weeks
+
+**Deliverables:**
+- Live IDE at https://hyperpolymath.github.io/error-lang
+- Offline-capable PWA
+- Fast global access (CDN)
+- SEO-optimized
+
+=== Phase 7: Alpha Testing (planned)
+
+**Goal:** Test with 5-10 students, iterate based on feedback
+
+**Activities:**
+- [ ] Recruit alpha testers (2-3 CS students, 2-3 instructors)
+- [ ] Create onboarding tutorial
+- [ ] Run 2-week trial course
+- [ ] Collect feedback (surveys, interviews)
+- [ ] Measure learning outcomes
+- [ ] Iterate on paradoxes and UI
+
+**Success Metrics:**
+- Students discover ≥7/10 paradoxes independently
+- Stability score correlates with code quality
+- Five Whys traces lead to correct root causes
+- 80%+ report "fun and engaging"
+- 70%+ report improved systems thinking
+
+**Timeline:** 4-6 weeks
+
+**Deliverables:**
+- Alpha testing report
+- User feedback summary
+- Iteration plan
+- Bug fixes and improvements
+
+=== Phase 8: Beta Release (planned)
+
+**Goal:** Public release for course integration
+
+**Features:**
+- [ ] Complete all 10 paradoxes
+- [ ] Instructor dashboard (view student progress)
+- [ ] Shareable code snippets (GitHub Gists integration)
+- [ ] Paradox discovery leaderboard
+- [ ] Video tutorials (5-10 minutes each)
+- [ ] Course integration guides (Canvas, Moodle, etc.)
+
+**Timeline:** 6-8 weeks
+
+**Deliverables:**
+- Beta version 0.5.0
+- Instructor documentation
+- Video tutorial series
+- Course integration examples
+
+=== Phase 9: Error Ecosystem Expansion (planned)
+
+**Goal:** Extend to databases and data structures
+
+**Projects:**
+
+==== Error-DB (fragile database)
+- Paradoxes: Query result non-determinism, index instability, transaction leakage
+- Stability tracking for queries and transactions
+- Five Whys for query optimization
+- Integration with Error-Lang IDE
+
+**Timeline:** 8-12 weeks
+
+==== Error-Struct (data structures with stability)
+- Paradoxes: Stack underflow on Tuesdays, heap quantum entanglement
+- Stability tracking for algorithms
+- Complexity visualization (O(n) → O(n²) transitions)
+- Integration with Error-Lang IDE
+
+**Timeline:** 6-10 weeks
+
+**Deliverables:**
+- Error-DB repository and documentation
+- Error-Struct repository and documentation
+- Unified IDE (switch between language/DB/struct modes)
+- Cross-domain curriculum
+
+=== Phase 10: Production 1.0 (planned)
+
+**Goal:** Stable, production-ready educational platform
+
+**Requirements:**
+- [ ] All 10 paradoxes stable and reproducible
+- [ ] Formal verification complete (proven core)
+- [ ] IDE fully functional with Monaco editor
+- [ ] Documentation complete (guides, API, tutorials)
+- [ ] Test coverage ≥80%
+- [ ] Security audit complete
+- [ ] Performance optimized (≤2s cold start)
+- [ ] Accessibility compliant (WCAG 2.1 AA)
+
+**Timeline:** 3-6 months from beta
+
+**Deliverables:**
+- Version 1.0.0 release
+- Published research paper
+- Course adoption (≥3 universities)
+- Community contribution guidelines
+- Long-term maintenance plan
+
+== Milestones
+
+[cols="1,2,1,1"]
+|===
+|Milestone |Description |Target Date |Status
+
+|M1: Foundation |Core paradoxes and docs |2026-01-31 |✅ DONE
+|M2: IDE Alpha |Working IDE with dashboard |2026-02-28 |🔄 In Progress
+|M3: All Paradoxes |10 paradoxes complete |2026-03-31 |Planned
+|M4: Formal Proofs |Idris2 verification |2026-05-31 |Planned
+|M5: Alpha Test |Student testing |2026-06-30 |Planned
+|M6: Beta Release |Public beta |2026-09-30 |Planned
+|M7: Error-DB |Database expansion |2027-03-31 |Planned
+|M8: Production 1.0 |Stable release |2027-12-31 |Planned
+|===
+
+== Dependencies
+
+=== External Dependencies
+
+- **ReScript compiler** - Must stay compatible with latest version
+- **Deno runtime** - Stable API required
+- **Vite** - Build tool updates
+- **GitHub Actions** - CI/CD infrastructure
+- **Idris2** - Formal verification (optional but recommended)
+
+=== Internal Dependencies
+
+- **proven** - Idris2 formal verification library
+- **cadre-tea-router** - Routing (must be stable)
+- **draig-ssg** - Static site generation
+- **rescript-tea** - UI framework
+- **a2ml** - Aspect modeling language
+
+== Risks and Mitigation
+
+=== Risk 1: IDE Build Complexity
+
+**Risk:** ReScript + Deno + Vite integration may have issues
+
+**Mitigation:**
+- Test build early (Phase 2)
+- Have fallback: Node.js/npm if Deno fails
+- Document build issues and workarounds
+
+=== Risk 2: Idris2 Expertise
+
+**Risk:** Formal verification requires specialized knowledge
+
+**Mitigation:**
+- Phase 4 is optional (not blocking 1.0)
+- Recruit Idris2 expert consultant if needed
+- Start with simpler proofs, build up
+
+=== Risk 3: Student Confusion
+
+**Risk:** Paradoxes may frustrate rather than educate
+
+**Mitigation:**
+- Alpha testing (Phase 7) catches this early
+- Iterative design based on feedback
+- Progressive difficulty (easy → hard paradoxes)
+- Clear tutorials and hints
+
+=== Risk 4: Browser Performance
+
+**Risk:** Real-time stability tracking may be slow
+
+**Mitigation:**
+- Debounce updates (max 10 updates/second)
+- WASM compiler for better performance
+- Optimize rendering (virtual DOM, memoization)
+- Limit example program size (≤200 lines)
+
+=== Risk 5: Maintenance Burden
+
+**Risk:** Three projects (Lang, DB, Struct) may be unsustainable
+
+**Mitigation:**
+- Focus on Error-Lang first (prove concept)
+- Error-DB/Struct only if Lang succeeds
+- Shared codebase (stability tracker, Five Whys)
+- Community contributions (open source)
+
+== Success Criteria
+
+=== Technical Success
+- [ ] IDE loads in ≤2 seconds
+- [ ] Stability tracking accurate (±5 points)
+- [ ] All paradoxes reproducible
+- [ ] Test coverage ≥80%
+- [ ] No security vulnerabilities (Scorecard 8/10+)
+
+=== Educational Success
+- [ ] Students discover ≥70% of paradoxes independently
+- [ ] Improved systems thinking (measured by pre/post tests)
+- [ ] 80%+ student satisfaction
+- [ ] Adopted by ≥3 universities
+- [ ] Published in education conference/journal
+
+=== Community Success
+- [ ] ≥10 external contributors
+- [ ] ≥100 GitHub stars
+- [ ] Active Discord/forum community
+- [ ] Tutorial videos with ≥1000 views
+- [ ] Mentioned in programming education blogs
+
+== Current Sprint (Next 2 Weeks)
+
+**Focus:** IDE Build and Testing
+
+**Tasks:**
+1. Test IDE build process
+   - [ ] `cd ide && deno task dev`
+   - [ ] Fix any Deno/Vite/ReScript integration issues
+   - [ ] Document build process
+
+2. Fix state persistence
+   - [ ] Implement localStorage for code
+   - [ ] Fix run counter increment
+   - [ ] Test multi-run temporal effects
+
+3. Basic compiler integration
+   - [ ] Wire up CodeChanged → CompileCode
+   - [ ] Parse simple programs
+   - [ ] Display AST in layer navigator
+
+4. Deploy to GitHub Pages
+   - [ ] Configure GitHub Actions for deployment
+   - [ ] Test deployment
+   - [ ] Set up custom domain (if applicable)
+
+== Long-Term Vision (5 Years)
+
+**Error-Lang becomes the standard pedagogical tool for teaching:**
+- Systems thinking in CS education
+- Language design and implementation
+- Database query optimization
+- Data structure algorithm analysis
+
+**Impact:**
+- Used in 50+ universities worldwide
+- Published research demonstrating learning gains
+- Community of educators contributing paradoxes
+- Spin-off tools (Error-Net for networking, Error-Sys for OS)
+
+**Sustainability:**
+- Open source with active community
+- Hosted on stable infrastructure (GitHub Pages)
+- Minimal maintenance (static site, no backend)
+- Clear succession plan for maintainers
+
+---
+
+**Last Updated:** 2026-01-31
+
+**Next Review:** 2026-02-28 (after IDE alpha complete)

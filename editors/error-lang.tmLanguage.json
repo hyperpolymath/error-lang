@@ -1,0 +1,202 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "_comment": "SPDX-License-Identifier: PMPL-1.0-or-later",
+  "name": "Error-Lang",
+  "scopeName": "source.error-lang",
+  "fileTypes": [
+    "err"
+  ],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#function-definitions"
+    },
+    {
+      "include": "#struct-definitions"
+    },
+    {
+      "include": "#identifiers"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.hash.error-lang",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.triple.error-lang",
+          "begin": "\"\"\"",
+          "end": "\"\"\""
+        },
+        {
+          "name": "string.quoted.double.error-lang",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.error-lang",
+              "match": "\\\\[nrt\\\\\"0]"
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.error-lang",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.error-lang",
+          "match": "\\b0[bB][01]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.error-lang",
+          "match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.float.scientific.error-lang",
+          "match": "\\b[0-9]+[eE][+-]?[0-9]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.error-lang",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.error-lang",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "constant.language.nil.error-lang",
+          "match": "\\b(nil)\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.error-lang",
+          "match": "\\b(if|elseif|else|while|for|in|break|continue|return|end)\\b"
+        },
+        {
+          "name": "keyword.declaration.error-lang",
+          "match": "\\b(main|let|mutable|function|fn|struct|gutter)\\b"
+        },
+        {
+          "name": "keyword.operator.word.error-lang",
+          "match": "\\b(and|or|not)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.error-lang",
+          "match": "\\b(Int|Float|String|Bool|Array)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arrow.error-lang",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.comparison.error-lang",
+          "match": "==|!=|<=|>=|<<|>>|<|>"
+        },
+        {
+          "name": "keyword.operator.assignment.error-lang",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.arithmetic.error-lang",
+          "match": "\\+|-|\\*|/|%"
+        },
+        {
+          "name": "keyword.operator.bitwise.error-lang",
+          "match": "&|\\||\\^|~"
+        },
+        {
+          "name": "keyword.operator.try.error-lang",
+          "match": "\\?"
+        }
+      ]
+    },
+    "function-definitions": {
+      "patterns": [
+        {
+          "match": "\\b(function|fn)\\s+([a-z_][a-zA-Z0-9_]*)\\s*\\(",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.error-lang"
+            },
+            "2": {
+              "name": "entity.name.function.error-lang"
+            }
+          }
+        }
+      ]
+    },
+    "struct-definitions": {
+      "patterns": [
+        {
+          "match": "\\b(struct)\\s+([A-Z][a-zA-Z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.error-lang"
+            },
+            "2": {
+              "name": "entity.name.type.error-lang"
+            }
+          }
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "entity.name.type.error-lang",
+          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+        },
+        {
+          "name": "variable.other.error-lang",
+          "match": "\\b[a-z_][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    }
+  },
+  "_taxonomy": "editors/textmate-grammar"
+}

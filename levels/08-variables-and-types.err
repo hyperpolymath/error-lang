@@ -1,0 +1,56 @@
+# Level 08: Variables and Types
+# Learning: let bindings, mutability, type annotations
+# No errors in this level - just fundamentals!
+
+main
+    # Immutable binding (default)
+    let name = "Error-Lang"
+    let version = 1
+    let pi = 3.14159
+
+    # Mutable binding (can be changed)
+    let mutable counter = 0
+
+    # With type annotations
+    let age: Int = 25
+    let price: Float = 19.99
+    let message: String = "Hello!"
+    let active: Bool = true
+
+    println("Language: ", name)
+    println("Version: ", version)
+    println("Pi: ", pi)
+    println("Counter: ", counter)
+
+    # Mutating a mutable variable
+    # counter = counter + 1  # TODO: implement assignment
+    # println("Counter after: ", counter)
+
+    println("Level 08 complete!")
+end
+
+# LESSON: Variables in Error-Lang
+#
+# IMMUTABLE (default):
+#   let x = 10
+#   x = 20  # ERROR! Can't reassign
+#
+# MUTABLE (opt-in):
+#   let mutable x = 10
+#   x = 20  # OK, x is now 20
+#
+# TYPE ANNOTATIONS (optional):
+#   let x: Int = 10      # Explicit type
+#   let y = 10           # Inferred as Int
+#
+# AVAILABLE TYPES:
+#   Int     - whole numbers: 42, -7, 0
+#   Float   - decimals: 3.14, -0.5
+#   String  - text: "hello"
+#   Bool    - true or false
+#   Array<T> - list of T: [1, 2, 3]
+#
+# Why immutable by default?
+# - Easier to reason about
+# - Fewer bugs from unexpected changes
+# - Better for concurrent code

@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Conformance: array literal
+
+main
+    let numbers = [1, 2, 3, 4, 5]
+    let names = ["alpha", "beta", "gamma"]
+    println("arrays created")
+end

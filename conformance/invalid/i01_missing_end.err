@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Conformance (INVALID): missing 'end' for main block
+
+main
+    println("no end keyword")
+

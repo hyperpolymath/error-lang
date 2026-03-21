@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Example: Type Quantum Superposition
+# Learning: Variables exist in multiple types until observed
+
+main
+    # No type annotation - quantum superposition!
+    let x = 42
+
+    # At this point, x exists as Int | Float | String simultaneously
+    # The type will collapse when we observe it (use it)
+
+    # First observation: println
+    println("Value of x:", x)
+
+    # What type did x collapse to?
+    # Run this multiple times with different seeds to see!
+
+    # Another quantum variable
+    let y = 3.14
+
+    # y is also in superposition: Float | String
+    println("Value of y:", y)
+
+    # With explicit type annotation - no superposition
+    let z = 100
+
+    println("Value of z:", z)
+end
+
+# 🌀 EXPECTED BEHAVIOR:
+# Run #1 (seed A): x collapses to String "42"
+# Run #2 (seed B): x collapses to Int 42
+# Run #3 (seed C): x collapses to Float 42.0
+#
+# The collapse is deterministic (same seed = same result)
+# But appears random without knowing the seed!
+#
+# 🎓 LEARNING OUTCOME:
+# Type inference is not magic - it's contextual.
+# Without type annotations, the compiler/runtime makes choices.
+# Those choices have consequences (stability, performance, bugs).
+#
+# 💡 STABILIZATION:
+# Add explicit type: let x: Int = 42 → no superposition → stability: 100
+# Keep quantum: let x = 42 → superposition → stability: 85 (type uncertainty)
+#
+# REAL-WORLD PARALLEL:
+# - JavaScript: let x = 42 could be number or string after operations
+# - Python: x = 42 is int, but x = "42" later is valid
+# - TypeScript: const x = 42 infers number type, prevents reassignment
+#
+# Type systems constrain what you can do, but prevent errors.
+# This is the tradeoff Error-Lang makes visible!

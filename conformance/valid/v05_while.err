@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Conformance: while loop
+
+main
+    let mutable i = 0
+    while i < 5
+        println("i =", i)
+        i = i + 1
+    end
+end

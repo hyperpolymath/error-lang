@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Example: Mutation Ripple Effect
+# Learning: Mutable state affects code stability
+
+main
+    # Mutable counter
+    let mut counter = 0
+
+    # Mutation creates "ripples"
+    counter = counter + 1
+
+    # Every function that reads counter is now "tainted"
+    println("Counter:", counter)
+    display(counter)
+    calculate(counter)
+
+    # Try making counter immutable (remove 'mut')
+    # Notice stability increase
+end
+
+function display(n)
+    println("Display:", n)
+end
+
+function calculate(n)
+    let result = n * 2
+    println("Calculate:", result)
+end
+
+# 🔴 EXPECTED CONSEQUENCES:
+# - Mutation at line 8: -10 stability
+# - 3 readers (println, display, calculate): -15 stability
+# - Total: stability = 75
+#
+# 🎓 LEARNING OUTCOME:
+# Mutable state creates invisible dependencies.
+# Every mutation affects all readers.
+# This is why functional programming prefers immutability!
+#
+# 💡 STABILIZATION:
+# Make immutable, pass as parameter → stability: 100
+#
+# ALTERNATIVE CODE:
+# let counter = 0
+# let counter = counter + 1
+# # Each "mutation" creates a new value
+# # Stability: 100

@@ -1,0 +1,276 @@
+{
+  "runNumber": 1,
+  "totalRuns": 1,
+  "lastScore": 0,
+  "timestamp": 1769841810288,
+  "history": [
+    {
+      "score": 80,
+      "event": {
+        "type": "null-access",
+        "impact": -20,
+        "details": {
+          "variable": "infected",
+          "source": "null",
+          "depth": 1,
+          "line": 7,
+          "cascadePath": [
+            {
+              "variable": "null",
+              "line": 7,
+              "depth": 0
+            },
+            {
+              "variable": "infected",
+              "line": 7,
+              "depth": 1
+            }
+          ]
+        },
+        "timestamp": 1769841810285,
+        "line": 7
+      }
+    },
+    {
+      "score": 40,
+      "event": {
+        "type": "null-access",
+        "impact": -40,
+        "details": {
+          "variable": "victim1",
+          "source": "infected",
+          "depth": 2,
+          "line": 11,
+          "cascadePath": [
+            {
+              "variable": "null",
+              "line": 11,
+              "depth": 0
+            },
+            {
+              "variable": "infected",
+              "line": 7,
+              "depth": 1
+            },
+            {
+              "variable": "victim1",
+              "line": 11,
+              "depth": 2
+            }
+          ]
+        },
+        "timestamp": 1769841810285,
+        "line": 11
+      }
+    },
+    {
+      "score": 0,
+      "event": {
+        "type": "null-access",
+        "impact": -60,
+        "details": {
+          "variable": "victim2",
+          "source": "victim1",
+          "depth": 3,
+          "line": 15,
+          "cascadePath": [
+            {
+              "variable": "null",
+              "line": 15,
+              "depth": 0
+            },
+            {
+              "variable": "infected",
+              "line": 7,
+              "depth": 1
+            },
+            {
+              "variable": "victim1",
+              "line": 11,
+              "depth": 2
+            },
+            {
+              "variable": "victim2",
+              "line": 15,
+              "depth": 3
+            }
+          ]
+        },
+        "timestamp": 1769841810285,
+        "line": 15
+      }
+    },
+    {
+      "score": 0,
+      "event": {
+        "type": "null-access",
+        "impact": -80,
+        "details": {
+          "operation": "addition",
+          "source": "victim2",
+          "depth": 4,
+          "line": 20,
+          "cascadePath": [
+            {
+              "variable": "null",
+              "line": 20,
+              "depth": 0
+            },
+            {
+              "variable": "infected",
+              "line": 7,
+              "depth": 1
+            },
+            {
+              "variable": "victim1",
+              "line": 11,
+              "depth": 2
+            },
+            {
+              "variable": "victim2",
+              "line": 15,
+              "depth": 3
+            }
+          ]
+        },
+        "timestamp": 1769841810286,
+        "line": 20
+      }
+    },
+    {
+      "score": 0,
+      "event": {
+        "type": "null-access",
+        "impact": -20,
+        "details": {
+          "variable": "y",
+          "source": "x + victim2",
+          "depth": 1,
+          "line": 20,
+          "cascadePath": [
+            {
+              "variable": "x + victim2",
+              "line": 20,
+              "depth": 0
+            },
+            {
+              "variable": "y",
+              "line": 20,
+              "depth": 1
+            }
+          ]
+        },
+        "timestamp": 1769841810286,
+        "line": 20
+      }
+    },
+    {
+      "score": 0,
+      "event": {
+        "type": "null-access",
+        "impact": -40,
+        "details": {
+          "operation": "addition",
+          "source": "y",
+          "depth": 2,
+          "line": 24,
+          "cascadePath": [
+            {
+              "variable": "x + victim2",
+              "line": 24,
+              "depth": 0
+            },
+            {
+              "variable": "y",
+              "line": 20,
+              "depth": 1
+            }
+          ]
+        },
+        "timestamp": 1769841810286,
+        "line": 24
+      }
+    },
+    {
+      "score": 0,
+      "event": {
+        "type": "null-access",
+        "impact": -20,
+        "details": {
+          "variable": "z",
+          "source": "y + 100",
+          "depth": 1,
+          "line": 24,
+          "cascadePath": [
+            {
+              "variable": "y + 100",
+              "line": 24,
+              "depth": 0
+            },
+            {
+              "variable": "z",
+              "line": 24,
+              "depth": 1
+            }
+          ]
+        },
+        "timestamp": 1769841810286,
+        "line": 24
+      }
+    },
+    {
+      "score": 0,
+      "event": {
+        "type": "null-access",
+        "impact": -40,
+        "details": {
+          "operation": "addition",
+          "source": "infected",
+          "depth": 2,
+          "line": 32,
+          "cascadePath": [
+            {
+              "variable": "null",
+              "line": 32,
+              "depth": 0
+            },
+            {
+              "variable": "infected",
+              "line": 7,
+              "depth": 1
+            }
+          ]
+        },
+        "timestamp": 1769841810286,
+        "line": 32
+      }
+    },
+    {
+      "score": 0,
+      "event": {
+        "type": "null-access",
+        "impact": -20,
+        "details": {
+          "variable": "contaminated",
+          "source": "safe + infected",
+          "depth": 1,
+          "line": 32,
+          "cascadePath": [
+            {
+              "variable": "safe + infected",
+              "line": 32,
+              "depth": 0
+            },
+            {
+              "variable": "contaminated",
+              "line": 32,
+              "depth": 1
+            }
+          ]
+        },
+        "timestamp": 1769841810286,
+        "line": 32
+      }
+    }
+  ]
+}

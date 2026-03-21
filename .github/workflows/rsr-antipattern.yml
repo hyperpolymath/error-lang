@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+name: RSR Antipattern Detection
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: read-all
+
+jobs:
+  detect-antipatterns:
+    name: Detect RSR Violations
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
+
+      - name: Check for banned patterns
+        run: |
+          echo "Checking for RSR antipatterns..."
+
+          # Check for banned package managers
+          if [ -f "package-lock.json" ] || [ -f "yarn.lock" ] || [ -f "pnpm-lock.yaml" ]; then
+            echo "ERROR: Found npm/yarn/pnpm lock files. Use Deno instead."
+            exit 1
+          fi
+
+          # Check for node_modules
+          if [ -d "node_modules" ]; then
+            echo "ERROR: node_modules directory found. Use Deno instead."
+            exit 1
+          fi
+
+          # Check for TypeScript (should use ReScript)
+          if find . -name "*.ts" -not -path "./node_modules/*" | grep -q .; then
+            echo "WARNING: TypeScript files found. Consider using ReScript."
+          fi
+
+          # Check for required files
+          for file in STATE.scm META.scm ECOSYSTEM.scm LICENSE SECURITY.md; do
+            if [ ! -f "$file" ]; then
+              echo "ERROR: Required file $file missing"
+              exit 1
+            fi
+          done
+
+          echo "RSR compliance check passed"

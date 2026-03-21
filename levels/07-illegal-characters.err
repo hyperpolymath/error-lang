@@ -1,0 +1,41 @@
+# Level 07: Illegal Characters (E0004)
+# Learning: Valid character sets in source code
+# Error-Lang only accepts specific characters
+
+main
+    # This works - valid identifiers
+    let myVariable = 42
+    let _private = 100
+    let camelCase = 200
+    let snake_case = 300
+
+    println("Valid names work: ", myVariable)
+
+    gutter
+        # These fail - invalid characters
+        let @decorated = 1
+        let my-variable = 2
+        let price$ = 3
+        let 100percent = 4
+    end
+
+    println("Level 07 complete!")
+end
+
+# LESSON: Identifiers have strict rules.
+#
+# Valid identifier characters:
+#   - Letters: a-z, A-Z
+#   - Digits: 0-9 (but not at start!)
+#   - Underscore: _
+#
+# Invalid characters:
+#   @ # $ % ^ & * - + = etc.
+#
+# Why these rules?
+# 1. @ could be confused with decorators (other languages)
+# 2. - is the minus operator (a-b means subtraction)
+# 3. $ is used for string interpolation in some languages
+# 4. Starting with a digit: is 123abc a number or name?
+#
+# The lexer needs unambiguous rules to tokenize correctly.

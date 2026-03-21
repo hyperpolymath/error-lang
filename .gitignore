@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+
+# ReScript
+lib/
+.bsb.lock
+.merlin
+*.bs.js
+
+# Node (if needed)
+node_modules/
+package-lock.json
+
+# Zig cache
+.zig-cache/
+zig-out/
+
+# Build artifacts
+*.wasm
+*.o
+*.so
+*.dylib
+*.dll
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+.Trash-*/
+
+# Temporary
+*.tmp
+*.log
+
+# Crash recovery artifacts
+ai-cli-crash-capture/

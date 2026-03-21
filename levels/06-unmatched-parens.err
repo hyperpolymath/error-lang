@@ -1,0 +1,42 @@
+# Level 06: Unmatched Parentheses (E0006)
+# Learning: Expression nesting and balanced delimiters
+# Every '(' needs a matching ')'
+
+main
+    # This works - balanced parentheses
+    let result = (10 + 5) * 2
+    println("Result: ", result)
+
+    # Nested calls work too
+    let x = 42
+    println("Value: ", x)
+
+    gutter
+        # This fails - missing closing parenthesis
+        println("Hello"
+        let y = (10 + (5 * 2)
+    end
+
+    println("Level 06 complete!")
+end
+
+# LESSON: Parentheses must be balanced.
+#
+# The parser uses a counter:
+#   ( -> increment
+#   ) -> decrement
+#
+# At the end of an expression, the count should be zero.
+# If it's positive: missing )
+# If it's negative: extra )
+#
+# Nesting makes this tricky:
+#   ((a + b) * (c + d))
+#      1  1     1  1
+#         0        0
+#                     -1 = balanced!
+#
+# Tips:
+# - Use an editor with bracket matching
+# - Type both brackets, then fill in between
+# - Indent nested expressions clearly

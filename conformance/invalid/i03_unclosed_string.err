@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Conformance (INVALID): unclosed string literal (outside gutter)
+
+main
+    let msg = "this string never closes
+    println(msg)
+end

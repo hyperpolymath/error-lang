@@ -1,0 +1,70 @@
+# Level 09: Operators
+# Learning: Arithmetic, comparison, logical, and bitwise ops
+# Error-Lang uses words for boolean operators!
+
+main
+    # Arithmetic
+    let sum = 10 + 5
+    let diff = 10 - 5
+    let prod = 10 * 5
+    let quot = 10 / 5
+    let rem = 10 % 3
+
+    println("10 + 5 = ", sum)
+    println("10 - 5 = ", diff)
+    println("10 * 5 = ", prod)
+    println("10 / 5 = ", quot)
+    println("10 % 3 = ", rem)
+
+    # Comparison
+    let eq = 5 == 5
+    let neq = 5 != 3
+    let lt = 3 < 5
+    let gt = 5 > 3
+    let lte = 5 <= 5
+    let gte = 5 >= 5
+
+    println("5 == 5: ", eq)
+    println("5 != 3: ", neq)
+    println("3 < 5: ", lt)
+
+    # Logical (using WORDS, not symbols!)
+    let both = true and true
+    let either = false or true
+    let negated = not false
+
+    println("true and true: ", both)
+    println("false or true: ", either)
+    println("not false: ", negated)
+
+    gutter
+        # Common mistake from other languages:
+        # These symbols don't work in Error-Lang!
+        let wrong1 = true && false
+        let wrong2 = true || false
+        let wrong3 = !true
+    end
+
+    println("Level 09 complete!")
+end
+
+# LESSON: Error-Lang uses words for boolean operators.
+#
+# WRONG (from C, Java, JavaScript):
+#   &&  ||  !
+#
+# RIGHT (Error-Lang):
+#   and  or  not
+#
+# Why words?
+# 1. More readable: "if x and y" vs "if x && y"
+# 2. Consistent with natural language
+# 3. Avoids confusion with bitwise operators
+#
+# Bitwise operators (for advanced users):
+#   &   - bitwise AND
+#   |   - bitwise OR
+#   ^   - bitwise XOR
+#   ~   - bitwise NOT
+#   <<  - left shift
+#   >>  - right shift

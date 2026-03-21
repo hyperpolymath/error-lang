@@ -1,0 +1,83 @@
+{
+  "name": "error-lang",
+  "displayName": "Error-Lang",
+  "description": "Systems Thinking Education Through Computational Haptics",
+  "version": "1.0.0",
+  "publisher": "hyperpolymath",
+  "license": "PMPL-1.0-or-later",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Education"
+  ],
+  "keywords": [
+    "error-lang",
+    "computational-haptics",
+    "pedagogy",
+    "systems-thinking"
+  ],
+  "activationEvents": [
+    "onLanguage:error-lang"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "error-lang",
+        "aliases": ["Error-Lang", "error-lang"],
+        "extensions": [".err"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "error-lang",
+        "scopeName": "source.error-lang",
+        "path": "./syntaxes/error-lang.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Error-Lang",
+      "properties": {
+        "errorLang.lspPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to error-lang LSP server"
+        },
+        "errorLang.enableHaptics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable computational haptics visualization"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "errorLang.showStability",
+        "title": "Show Stability Score",
+        "category": "Error-Lang"
+      },
+      {
+        "command": "errorLang.runProgram",
+        "title": "Run Program",
+        "category": "Error-Lang"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0",
+    "@vscode/vsce": "^2.19.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

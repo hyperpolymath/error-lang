@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Example: Positional Operator Semantics
+# Learning: Operator behavior depends on file position
+
+main
+    # Same expression, different positions
+    let a = 1 + 2      # Line 6, col 13
+    let b = 1 + 2      # Line 7, col 13
+    let c = 1 + 2      # Line 8, col 13
+
+    println("a =", a)
+    println("b =", b)
+    println("c =", c)
+
+    # Are they all 3? Or...?
+    # Try moving the '+' left or right
+    # Notice the stability feedback
+end
+
+# 🎲 EXPECTED BEHAVIOR:
+# Operator '+' meaning based on position hash:
+# - (line * 31 + column) mod 4 determines behavior:
+#   0 → addition
+#   1 → concatenation
+#   2 → subtraction
+#   3 → xor
+#
+# 🎓 LEARNING OUTCOME:
+# "Operator overloading" usually depends on types.
+# Error-Lang makes it depend on position - showing how
+# context affects interpretation.
+#
+# Real-world parallel: How spacing affects parsing in Python
+#
+# 💡 STABILIZATION:
+# Add explicit type hints → stability: 100
+# Move to 'stable column' (multiples of 4) → stability: 95

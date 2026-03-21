@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Example: Paradox Discovery
+# Learning: Discover the context-collapse keyword paradox
+
+main
+    # This looks normal...
+    let end = 42
+    println("The value of end is:", end)
+
+    # But wait - 'end' is also the block terminator!
+    # How does Error-Lang know which one you mean?
+
+    # Try moving this to different indentation levels
+    # Try renaming to 'end_value'
+    # Notice how stability changes
+end
+
+# ⚡ EXPECTED PARADOXES:
+# - Context-collapse keyword: 'end' is both identifier and keyword
+# - Depends on depth: depth 1 (inside main) → identifier
+#                     depth 0 (at main level) → keyword
+#
+# 🎓 LEARNING OUTCOME:
+# Keywords are context-sensitive. Position matters.
+# This is why most languages ban keywords as identifiers!
+#
+# 💡 STABILIZATION:
+# Rename to 'end_value' → stability: 100
+# Keep as 'end' → stability: 85 (context-dependent)

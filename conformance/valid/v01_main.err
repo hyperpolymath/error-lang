@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Conformance: simplest valid program (main block)
+
+main
+    println("Hello, Error-Lang!")
+end

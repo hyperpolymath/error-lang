@@ -1,0 +1,154 @@
+% SPDX-License-Identifier: PMPL-1.0-or-later
+%
+% References for Error-Lang: a pedagogical language teaching through
+% consequence amplification and 10 paradoxes
+%
+
+@book{papert1980,
+  author    = {Seymour Papert},
+  title     = {Mindstorms: Children, Computers, and Powerful Ideas},
+  publisher = {Basic Books},
+  year      = {1980},
+  note      = {Foundational work on constructionist learning through programming.
+               Error-Lang extends Papert's philosophy by making errors themselves
+               the primary pedagogical vehicle rather than incidental obstacles.}
+}
+
+@book{kolb1984,
+  author    = {David A. Kolb},
+  title     = {Experiential Learning: Experience as the Source of Learning
+               and Development},
+  publisher = {Prentice Hall},
+  year      = {1984},
+  note      = {Establishes the experiential learning cycle (concrete experience,
+               reflective observation, abstract conceptualisation, active
+               experimentation). Error-Lang's consequence amplification maps
+               directly onto this cycle.}
+}
+
+@article{siek2006,
+  author    = {Jeremy G. Siek and Walid Taha},
+  title     = {Gradual Typing for Functional Languages},
+  booktitle = {Scheme and Functional Programming Workshop},
+  pages     = {81--92},
+  year      = {2006},
+  note      = {Introduces gradual typing, allowing a spectrum from dynamic to
+               static checking. Error-Lang uses gradual typing so learners
+               experience type errors at calibrated severity levels.}
+}
+
+@book{pierce2002,
+  author    = {Benjamin C. Pierce},
+  title     = {Types and Programming Languages},
+  publisher = {MIT Press},
+  year      = {2002},
+  note      = {Comprehensive treatment of type systems. Provides the formal
+               underpinning for Error-Lang's type-theoretic paradoxes and
+               the consequence amplification type discipline.}
+}
+
+@article{sweller1988,
+  author    = {John Sweller},
+  title     = {Cognitive Load During Problem Solving: Effects on Learning},
+  journal   = {Cognitive Science},
+  volume    = {12},
+  number    = {2},
+  pages     = {257--285},
+  year      = {1988},
+  note      = {Introduces cognitive load theory. Error-Lang's paradox
+               progression is calibrated to manage intrinsic and extraneous
+               cognitive load, ensuring errors teach rather than overwhelm.}
+}
+
+@article{ericsson1993,
+  author    = {K. Anders Ericsson and Ralf Th. Krampe and Clemens Tesch-R\"{o}mer},
+  title     = {The Role of Deliberate Practice in the Acquisition of Expert
+               Performance},
+  journal   = {Psychological Review},
+  volume    = {100},
+  number    = {3},
+  pages     = {363--406},
+  year      = {1993},
+  note      = {Establishes deliberate practice as the mechanism for expertise
+               acquisition. Error-Lang structures error encounters as
+               deliberate practice exercises with immediate, amplified feedback.}
+}
+
+@article{wadler2015,
+  author    = {Philip Wadler},
+  title     = {Propositions as Types},
+  journal   = {Communications of the ACM},
+  volume    = {58},
+  number    = {12},
+  pages     = {75--84},
+  year      = {2015},
+  note      = {Expository account of the Curry-Howard correspondence. Several
+               of Error-Lang's 10 paradoxes exploit the tension between
+               propositions-as-types and runtime behaviour to create
+               pedagogically productive contradictions.}
+}
+
+@inproceedings{findler2002,
+  author    = {Robert Bruce Findler and Matthias Felleisen},
+  title     = {Contracts for Higher-Order Functions},
+  booktitle = {Proceedings of the ACM SIGPLAN International Conference on
+               Functional Programming (ICFP)},
+  pages     = {48--59},
+  year      = {2002},
+  publisher = {ACM},
+  note      = {Introduces blame tracking for contract violations. Error-Lang
+               adapts blame assignment to attribute amplified consequences
+               to the correct source of the error.}
+}
+
+@book{felleisen2018,
+  author    = {Matthias Felleisen and Robert Bruce Findler and Matthew Flatt
+               and Shriram Krishnamurthi},
+  title     = {How to Design Programs},
+  publisher = {MIT Press},
+  edition   = {2nd},
+  year      = {2018},
+  note      = {Systematic approach to program design through progressive
+               complexity. Error-Lang's 10 paradoxes follow a similar
+               scaffolded progression from simple to complex error scenarios.}
+}
+
+@article{kapur2008,
+  author    = {Manu Kapur},
+  title     = {Productive Failure},
+  journal   = {Cognition and Instruction},
+  volume    = {26},
+  number    = {3},
+  pages     = {379--424},
+  year      = {2008},
+  note      = {Demonstrates that initial failure before instruction can enhance
+               learning. Error-Lang's consequence amplification is a
+               programmatic realisation of productive failure.}
+}
+
+@inproceedings{marceau2011,
+  author    = {Guillaume Marceau and Kathi Fisler and Shriram Krishnamurthi},
+  title     = {Measuring the Effectiveness of Error Messages Designed for
+               Novice Programmers},
+  booktitle = {Proceedings of the ACM SIGCSE Technical Symposium},
+  pages     = {499--504},
+  year      = {2011},
+  publisher = {ACM},
+  note      = {Empirical study of error message quality for novices. Informs
+               Error-Lang's design of consequence messages that are both
+               amplified and pedagogically effective.}
+}
+
+@inproceedings{siek2015,
+  author    = {Jeremy G. Siek and Michael M. Vitousek and Matteo Cimini
+               and John Tang Boyland},
+  title     = {Refined Criteria for Gradual Typing},
+  booktitle = {Summit on Advances in Programming Languages (SNAPL)},
+  series    = {Leibniz International Proceedings in Informatics},
+  volume    = {32},
+  pages     = {274--293},
+  year      = {2015},
+  note      = {Formalises the gradual guarantee and other criteria for
+               well-behaved gradual type systems. Error-Lang's type discipline
+               satisfies these criteria while adding consequence amplification.}
+}

@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Conformance: if conditional
+
+main
+    let x = 10
+    if x > 5
+        println("x is large")
+    end
+end

@@ -1,0 +1,113 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Example: Null Propagation Cascade
+# Learning: Null spreads like a virus - touching it infects your variables
+
+main
+    # Start with a null value
+    let infected = null
+    println("infected =", infected)
+
+    # Touch the infected variable - YOU GET INFECTED!
+    let victim1 = infected
+    println("victim1 =", victim1)
+
+    # Touch the victim - the infection spreads!
+    let victim2 = victim1
+    println("victim2 =", victim2)
+
+    # Even arithmetic with null infects the result
+    let x = 42
+    let y = x + victim2
+    println("42 + null =", y)
+
+    # The cascade continues...
+    let z = y + 100
+    println("null + 100 =", z)
+
+    # Can we stop the spread?
+    let safe = 123
+    println("safe value =", safe)
+
+    # NO! If safe touches null, it becomes null
+    let contaminated = safe + infected
+    println("123 + null =", contaminated)
+
+    # The virus has spread to 6 variables!
+    # Watch the stability drop with each infection
+end
+
+# 🦠 EXPECTED BEHAVIOR:
+# Null propagates through:
+# 1. Direct assignment: let x = null_var
+# 2. Arithmetic: let y = 42 + null_var → y becomes null
+# 3. Concatenation: let z = "hello" + null_var → z becomes null
+# 4. Function calls: println(null_var) → prints null
+#
+# Stability decreases per infection:
+# - First null touch: -20 points
+# - Second level cascade: -40 points
+# - Third level: -60 points
+# - Fourth+ levels: -80 points
+#
+# 🎓 LEARNING OUTCOME:
+# Null is the "billion-dollar mistake" (Tony Hoare, 2009)
+# - NullPointerException is one of the most common errors
+# - Null checking must happen at EVERY access
+# - One missed check can crash entire programs
+# - Modern languages use Option/Maybe types to prevent this
+#
+# Real-world parallel:
+# - Java: NullPointerException
+# - JavaScript: "Cannot read property 'x' of null"
+# - Python: AttributeError: 'NoneType' object
+# - C: Segmentation fault (dereferencing NULL)
+#
+# 💡 STABILIZATION STRATEGIES:
+# 1. Use Option types instead of null → stability: 100
+#    let safe: Option<Int> = Some(42)
+#    let none: Option<Int> = None
+#
+# 2. Check for null at boundaries → stability: 85
+#    if value != null
+#        use(value)
+#    end
+#
+# 3. Use non-nullable types by default → stability: 95
+#    let x: Int = 42  # Cannot be null
+#    let y: Int? = null  # Explicitly nullable
+#
+# 4. Fail fast with assertions → stability: 75
+#    assert(value != null, "value cannot be null")
+#
+# DISCOVERY UNLOCKED:
+# "Null Pandemic" - One unchecked null can infect an entire
+# codebase. This is why Rust, Swift, and Kotlin make nullability
+# explicit in the type system!
+#
+# FIVE WHYS TRACE:
+# WHY 1: Variable 'z' is null even though we assigned 100
+#   → Adding to null produced null
+# WHY 2: Addition to null produces null
+#   → Null propagation cascade - null infects operations
+# WHY 3: Null infects operations
+#   → No null-safety in the language
+# WHY 4: Language has no null-safety
+#   → Null was added for "convenience" (representing absence)
+# WHY 5: DESIGN TRADEOFF - Null chosen for simplicity
+#   → ALTERNATIVES: Option types, non-nullable by default
+#   → CONSEQUENCE: Billion-dollar mistake, endless NPEs
+#
+# CASCADE VISUALIZATION:
+#   infected (null)
+#      ↓
+#   victim1 (null) ← direct assignment
+#      ↓
+#   victim2 (null) ← transitive infection
+#      ↓
+#   y (null) ← arithmetic infection (42 + null)
+#      ↓
+#   z (null) ← cascading infection (null + 100)
+#      ↓
+#   contaminated (null) ← cross-contamination (123 + null)
+#
+# 6 variables infected from 1 null source!

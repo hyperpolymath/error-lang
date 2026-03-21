@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+name: Mirror to GitLab and Bitbucket
+
+on:
+  push:
+    branches: [main]
+
+permissions: read-all
+
+jobs:
+  mirror:
+    name: Sync to Forges
+    runs-on: ubuntu-latest
+    if: vars.GITLAB_MIRROR_ENABLED == 'true' || vars.BITBUCKET_MIRROR_ENABLED == 'true'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Mirror to GitLab
+        if: vars.GITLAB_MIRROR_ENABLED == 'true' && secrets.GITLAB_SSH_KEY != ''
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GITLAB_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
+          git remote add gitlab git@gitlab.com:hyperpolymath/error-lang.git || true
+          git push --mirror gitlab
+
+      - name: Mirror to Bitbucket
+        if: vars.BITBUCKET_MIRROR_ENABLED == 'true' && secrets.BITBUCKET_SSH_KEY != ''
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.BITBUCKET_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan bitbucket.org >> ~/.ssh/known_hosts
+          git remote add bitbucket git@bitbucket.org:hyperpolymath/error-lang.git || true
+          git push --mirror bitbucket

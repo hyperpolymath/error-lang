@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Conformance: gutter block (error injection zone)
+
+main
+    println("Before gutter")
+
+    gutter
+        # Error injection zone: parser enters error-tolerant mode
+        let broken = "this might break
+        let @oops = 42
+    end
+
+    println("After gutter - still running")
+end

@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Example: Arithmetic Drift
+# Learning: Floating-point precision isn't perfect - errors accumulate
+
+main
+    # Simple arithmetic - should be exact, right?
+    let a = 1 + 1
+    println("1 + 1 =", a)
+
+    let b = 2 + 2
+    println("2 + 2 =", b)
+
+    let c = 10 / 3
+    println("10 / 3 =", c)
+
+    # Accumulating drift
+    let sum = 0
+    let i = 0
+    while i < 100
+        sum = sum + 0.1
+        i = i + 1
+    end
+
+    println("0.1 added 100 times =", sum)
+    println("Expected: 10.0")
+    println("Actual: ???")
+
+    # The drift compounds!
+    let x = 0.1 + 0.2
+    println("0.1 + 0.2 =", x)
+    println("Is it 0.3? Check stability!")
+end
+
+# 🎲 EXPECTED BEHAVIOR:
+# Each arithmetic operation introduces a small random error:
+# - Addition: ±0.0001 to ±0.01 depending on operation count
+# - Subtraction: ±0.0001 to ±0.01
+# - Multiplication: ±0.001 to ±0.1
+# - Division: ±0.01 to ±0.5
+#
+# Error accumulates over time:
+# - First 10 operations: ≤ 0.01 total drift
+# - Operations 11-50: ≤ 0.1 total drift
+# - Operations 51+: ≤ 1.0 total drift
+#
+# Stability decreases as drift increases:
+# - Drift < 0.01: stability = 95-100
+# - Drift 0.01-0.1: stability = 80-94
+# - Drift 0.1-1.0: stability = 50-79
+# - Drift > 1.0: stability = 0-49
+#
+# 🎓 LEARNING OUTCOME:
+# Floating-point arithmetic is NOT exact!
+# - IEEE 754 has limited precision
+# - Errors compound over many operations
+# - Order of operations matters (associativity breaks)
+# - Never compare floats with == (use epsilon)
+#
+# Real-world parallel:
+# - JavaScript: 0.1 + 0.2 !== 0.3 (0.30000000000000004)
+# - Financial calculations require decimal types
+# - Scientific computing needs error analysis
+# - Game physics accumulates rounding errors
+#
+# 💡 STABILIZATION STRATEGIES:
+# 1. Use integer arithmetic when possible → stability: 100
+#    let cents = 100 + 200  # Not 1.00 + 2.00
+#
+# 2. Limit operation chains → stability: 90
+#    let result = calculate_once(inputs)
+#    # Not: a + b + c + d + e + f + g...
+#
+# 3. Use explicit precision types → stability: 95
+#    let precise: Decimal = 0.1 + 0.2
+#
+# 4. Accept the drift, document it → stability: 70
+#    # Known drift: ±0.01 after 100 ops
+#
+# DISCOVERY UNLOCKED:
+# "Computational Substrate Leakage" - the computer's physical
+# limitations (binary representation of decimals) leak into
+# your program's behavior!
+#
+# FIVE WHYS TRACE:
+# WHY 1: Sum isn't 10.0 after adding 0.1 a hundred times
+#   → Arithmetic drift introduced errors
+# WHY 2: Arithmetic has errors
+#   → Floating-point representation is approximate
+# WHY 3: Representation is approximate
+#   → 0.1 can't be exactly represented in binary
+# WHY 4: Binary can't represent 0.1
+#   → 0.1₁₀ = 0.0001100110011...₂ (infinite)
+# WHY 5: DESIGN TRADEOFF - Binary chosen for hardware efficiency
+#   → ALTERNATIVES: Decimal types (slower), rational numbers (complex)
+#   → CONSEQUENCE: Must handle precision errors explicitly

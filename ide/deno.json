@@ -1,0 +1,35 @@
+{
+  "name": "@hyperpolymath/error-lang-studio",
+  "version": "0.1.0",
+  "exports": "./src/Main.res.js",
+  "tasks": {
+    "clean": "rescript clean",
+    "build": "rescript build && deno run -A npm:vite build",
+    "dev": "deno task dev:rescript & deno task dev:vite",
+    "dev:rescript": "rescript build -w",
+    "dev:vite": "deno run -A npm:vite",
+    "serve": "deno run -A npm:vite preview"
+  },
+  "imports": {
+    "vite": "npm:vite@^5.4.11",
+    "rescript": "^12.0.0"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window", "dom", "dom.iterable"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 100,
+    "indentWidth": 2,
+    "semiColons": false,
+    "singleQuote": true
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    },
+    "exclude": ["src/MonacoInterop.js", "src/monaco-setup.js"]
+  }
+}

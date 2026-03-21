@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Conformance: for loop over collection
+
+main
+    for x in [10, 20, 30]
+        println("x =", x)
+    end
+end
