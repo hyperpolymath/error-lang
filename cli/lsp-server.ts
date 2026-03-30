@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-all
+#!/usr/bin/env -S deno run --allow-read --allow-env --allow-net
 // SPDX-License-Identifier: PMPL-1.0-or-later
 // Error-Lang Language Server Protocol (LSP) Implementation
 //
