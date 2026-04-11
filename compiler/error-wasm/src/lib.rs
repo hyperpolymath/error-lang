@@ -587,7 +587,7 @@ mod tests {
             Err(WasmError::HeapOverflow { requested, .. }) => {
                 assert_eq!(requested, 10000);
             }
-            _ => panic!("expected HeapOverflow"),
+            other => panic!("expected HeapOverflow, got {other:?}"),
         }
     }
 
@@ -640,7 +640,7 @@ mod tests {
             Err(WasmError::InvalidAst { message }) => {
                 assert!(!message.is_empty());
             }
-            _ => panic!("expected InvalidAst"),
+            other => panic!("expected InvalidAst, got {other:?}"),
         }
     }
 
