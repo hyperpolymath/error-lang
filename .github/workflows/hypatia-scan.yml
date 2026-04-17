@@ -26,6 +26,8 @@ jobs:
           fetch-depth: 0
 
       - name: Run Hypatia scan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Hypatia neurosymbolic scan (placeholder)"
           echo "Scans: code patterns, security vulnerabilities, architectural smells"
