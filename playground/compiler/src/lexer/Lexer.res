@@ -1,5 +1,5 @@
 // @taxonomy: compiler/lexer
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // Error-Lang Playground - Lexer
 // Tokenizes Error-Lang source code with position tracking and error recovery
 

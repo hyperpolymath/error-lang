@@ -198,4 +198,4 @@ Error-Lang has achieved 100% production-ready status with:
 
 **Author:** Jonathan D.A. Jewell
 **Co-Authored-By:** Claude Sonnet 4.5
-**License:** PMPL-1.0-or-later
+**License:** MPL-2.0

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 //! Backend implementation for the Error-Lang LSP server.
 //!
 //! Analyses `.err` source files to produce diagnostics, type information,

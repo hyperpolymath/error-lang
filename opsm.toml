@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: PMPL-1.0-or-later
+# SPDX-License-Identifier: MPL-2.0
 # Copyright (c) 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
 #
 # error-lang package manifest — OPSM native.
@@ -7,7 +7,7 @@
 [package]
 name = "error-lang"
 description = "Error-lang compiler — error-type-first language for robust system design"
-license = "PMPL-1.0-or-later"
+license = "MPL-2.0"
 authors = ["Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>"]
 keywords = ["error_lang", "hyperpolymath", "nextgen-languages", "compiler"]
 homepage = "https://github.com/hyperpolymath/nextgen-languages"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: PMPL-1.0-or-later
+# SPDX-License-Identifier: MPL-2.0
 # Conformance test runner for Error-Lang
 #
 # Invokes the Error-Lang parser (ReScript-based) on every file in valid/

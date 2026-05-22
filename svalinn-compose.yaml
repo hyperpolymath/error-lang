@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: PMPL-1.0-or-later
+# SPDX-License-Identifier: MPL-2.0
 # Svalinn/Vordr Verified Container Orchestration for Error-Lang
 #
 # Deploys Error-Lang IDE, LSP server, and VM with formal verification

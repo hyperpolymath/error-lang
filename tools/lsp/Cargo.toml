@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: PMPL-1.0-or-later
+# SPDX-License-Identifier: MPL-2.0
 # error-lang-lsp — Language Server Protocol implementation for Error-Lang.
 #
 # Error-Lang is an educational programming language where errors are features.
@@ -9,7 +9,7 @@
 name = "error-lang-lsp"
 version = "0.1.0"
 edition = "2021"
-license = "PMPL-1.0-or-later"
+license = "MPL-2.0"
 description = "LSP server for the Error-Lang educational language"
 repository = "https://github.com/hyperpolymath/nextgen-languages"
 authors = ["Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>"]

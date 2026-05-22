@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-net
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // Error-Lang Language Server Protocol (LSP) Implementation
 //
 // Provides IDE integration with computational haptics visualization

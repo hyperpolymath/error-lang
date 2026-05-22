@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // Error-Lang CLI - Main entry point
 
 import { parseArgs } from "jsr:@std/cli@1/parse-args";

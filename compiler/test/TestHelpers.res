@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // TestHelpers.res - Shared test utilities for Error-Lang compiler tests
 
 open Types

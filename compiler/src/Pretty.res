@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // Pretty.res - Pretty-printer for Error-Lang AST
 //
 // Converts AST nodes into formatted source code strings. Handles

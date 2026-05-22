@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 = Error-Lang Language Specification
 :toc:
 :sectnums:
@@ -347,7 +347,7 @@ MUST implement Level 2 plus:
 
 == License
 
-Error-Lang is licensed under PMPL-1.0-or-later.
+Error-Lang is licensed under MPL-2.0.
 
 == References
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 //! error-lang-lsp — Language Server Protocol server for Error-Lang.
 //!
 //! Error-Lang is an educational programming language where errors are features,

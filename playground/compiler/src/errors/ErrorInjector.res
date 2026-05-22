@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // Error-Lang Playground - Error Injection System
 // The core pedagogical mechanism: intentionally inject errors into gutter blocks
 

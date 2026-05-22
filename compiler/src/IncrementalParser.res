@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // IncrementalParser.res - Incremental parsing wrapper for Error-Lang
 //
 // Wraps the existing Parser to provide incremental re-parsing.

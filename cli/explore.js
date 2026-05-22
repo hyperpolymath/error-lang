@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --allow-read
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // explore.js - Explore code through abstraction layers
 
 import { exploreCode, traceLayerTransformation } from './layer-navigator.js';

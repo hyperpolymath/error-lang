@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // ParserTest.res - Comprehensive tests for the Error-Lang parser
 //
 // Covers: main/end blocks, let statements, print/println, gutter blocks,

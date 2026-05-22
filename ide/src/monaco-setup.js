@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // monaco-setup.js - Monaco Editor initialization for Error-Lang Studio
 // Author: Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 //

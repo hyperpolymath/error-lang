@@ -4,7 +4,7 @@
   "description": "Systems Thinking Education Through Computational Haptics",
   "version": "1.0.0",
   "publisher": "hyperpolymath",
-  "license": "PMPL-1.0-or-later",
+  "license": "MPL-2.0",
   "engines": {
     "vscode": "^1.80.0"
   },

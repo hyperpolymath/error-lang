@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -59,7 +59,7 @@ impl Manifest {
                 name: "my-project".to_string(),
                 version: "0.1.0".to_string(),
                 authors: vec!["Unknown".to_string()],
-                license: "PMPL-1.0-or-later".to_string(),
+                license: "MPL-2.0".to_string(),
                 description: None,
             },
             dependencies: HashMap::new(),

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // IncrementalParserTest.res - Tests for the Error-Lang incremental parser
 
 open Types

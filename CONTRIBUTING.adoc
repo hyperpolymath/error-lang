@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 = Contributing to Error-Lang
 
 Thank you for your interest in contributing to Error-Lang!

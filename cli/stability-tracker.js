@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // stability-tracker.js - Real-time stability tracking and consequence amplification
 
 import {

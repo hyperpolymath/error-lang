@@ -1,5 +1,5 @@
 // @taxonomy: compiler/parser
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // Error-Lang Playground - Parser
 // Error-tolerant recursive descent parser for Error-Lang
 

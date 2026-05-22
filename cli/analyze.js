@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // analyze.js - Five Whys analyzer CLI
 
 import { interactiveFiveWhys } from './five-whys.js';

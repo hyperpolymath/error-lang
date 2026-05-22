@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // Codegen.res - AST to bytecode compiler for Error-Lang
 //
 // Compiles parsed AST into bytecode while preserving:

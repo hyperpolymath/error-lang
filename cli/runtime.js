@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: PMPL-1.0-or-later
+// SPDX-License-Identifier: MPL-2.0
 // runtime.js - Error-Lang runtime with stability tracking
 
 import { StabilityTracker, isPrime } from './stability-tracker.js';
