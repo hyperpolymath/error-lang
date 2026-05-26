@@ -46,3 +46,5 @@
 Cargo.lock linguist-generated=true
 package-lock.json linguist-generated=true
 mix.lock linguist-generated=true
+# Pending estate-wide policy: hide ReScript from primary-language detection.
+**/*.res linguist-detectable=false
