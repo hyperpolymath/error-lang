@@ -9,6 +9,7 @@ on:
   schedule:
     - cron: '0 6 * * 1'  # Weekly on Monday
 
+
 permissions: read-all
 
 jobs:
