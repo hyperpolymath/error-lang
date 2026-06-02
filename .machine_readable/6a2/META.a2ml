@@ -12,7 +12,15 @@ author = "Jonathan D.A. Jewell (hyperpolymath)"
 
 [architecture-decisions]
 decisions = [
-  # No ADRs recorded
+  # ADR-0001: Echo types model structured loss as first-class, VISIBLE decomposition.
+  #   Echo<A,B> = retained witness + visible output; EchoR<A,B> = residue after
+  #   irreversible erasure; echo_to_residue is an explicit decomposition step that
+  #   debits stability ([Stab-Erase]). Invariant: decomposition must be visible —
+  #   no silent cast, EchoR is not Echo-with-a-missing-field, debit not hidden.
+  #   Runtime is single-witness (VEcho{input,output} / VResidue{output}); whole-fibre
+  #   waits for first-class functions. Builtin names mirror EchoTypes.jl.
+  #   Refs: docs/Echo-Decomposition.adoc, spec/type-system.md §7.
+  { id = "ADR-0001", title = "Echo types as visible structured-loss decomposition", status = "accepted" },
 ]
 
 [development-practices]

@@ -1,0 +1,314 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
+= EXPLAINME — Error-Lang
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+:source-highlighter: rouge
+
+This document is the starting point for anyone — human or AI agent — arriving at this
+repository without context. Read it before touching code.
+
+== What is Error-Lang?
+
+Error-Lang is an *educational programming language* built around one idea:
+**make the ways programs go wrong visible, measurable, and explorable**.
+
+Most teaching languages hide complexity until it bites you. Error-Lang does the opposite
+— it surfaces failure modes as first-class citizens. You write programs, they partially
+decay, type structures collapse, stability scores drop, and you see exactly why.
+
+The result is that learners develop *intuition* about language design, type systems,
+and failure semantics before those failures become production incidents.
+
+=== The one-sentence pitch
+
+____
+A dissembling, decompositional programming language where programs, types, and semantics
+can decay over time — and the language makes that decay *visible* rather than hiding it.
+____
+
+=== What makes it unusual
+
+[cols="1,2"]
+|===
+| Feature | What it means
+
+| **Stability Score**
+| Every program execution produces a 0–100 stability score. Code choices (and decay)
+  debit this score in real time, like a craftsperson's quality gauge.
+
+| **Echo Types**
+| Structured loss is first-class: `Echo<A,B>` is a *retained witness* + visible output;
+  `EchoR<A,B>` is the *non-recoverable residue* after the witness is erased.
+  Decomposition is always visible — never silent.
+
+| **The Gutter Zone**
+| The `gutter` (ошибка) block is a pedagogically-safe space where deliberate errors are
+  injected and their effects made observable without crashing the program.
+
+| **Computational Haptics**
+| An animated stability bar, color coding, and sparkline history give you visceral
+  feedback about code quality — you *feel* the consequences of design decisions.
+
+| **Paradoxes**
+| Ten deliberate quirks (positional operators, scope leakage, temporal corruption…)
+  make implicit language assumptions *explicit* through contradiction.
+|===
+
+== Core Concepts
+
+=== Stability Score
+
+Every program starts at 100. Actions that introduce uncertainty, complexity, or
+structured loss debit the score. The score is visible at all times and cannot be
+hidden — that's the point.
+
+Key debits (from `docs/Error-Categories.adoc`):
+
+[cols="1,1"]
+|===
+| Action | Score Debit
+
+| Security error | −20
+| Logical error / Interface error | −15
+| Echo erasure (`echo_to_residue`) | −15
+| Runtime / Resource / Arithmetic error | −10
+| Semantic error | −10
+| Syntax / Linker error | −5
+|===
+
+=== Echo Types (`Echo<A,B>` / `EchoR<A,B>`)
+
+Echo types are Error-Lang's first-class shape for *structured loss* — situations where
+information is necessarily shed, but where that loss must be *visible* and *costed*.
+
+==== The governing invariant
+
+____
+*Decomposition must be visible.* `echo_to_residue` is never a silent cast. `EchoR` is
+never an `Echo` with a missing field. The stability debit is never hidden.
+____
+
+==== The two types
+
+[source,error-lang]
+----
+let e : Echo<Int, String> = echo(42, "answer")
+  # e carries BOTH the witness (42) and the output ("answer")
+  # echo_input(e)  → 42
+  # echo_output(e) → "answer"
+
+let r : EchoR<Int, String> = echo_to_residue(e)
+  # Stability: 100 → 85  (the [Stab-Erase] debit fires here)
+  # r carries ONLY the output — the witness is genuinely gone
+  # echo_output(r)  → "answer"  (output survives)
+  # echo_input(r)   → TYPE ERROR and RUNTIME ERROR (non-recoverable)
+----
+
+==== The five builtins (mirror EchoTypes.jl)
+
+[cols="1,2,2"]
+|===
+| Builtin | Signature | Notes
+
+| `echo(x, y)` | `(A, B) → Echo<A,B>` | Construct witness + output
+| `echo_to_residue(e)` | `Echo<A,B> → EchoR<A,B>` | Erase witness; debits stability
+| `echo_input(e)` | `Echo<A,B> → A` | Illegal on `EchoR`
+| `echo_output(e)` | `Echo<A,B> \| EchoR<A,B> → B` | Output survives erasure
+| `residue_strictly_loses(r)` | `EchoR<A,B> → Bool` | Always `true`
+|===
+
+==== Why irreversibility matters
+
+`Echo<A,B>` and `EchoR<A,B>` are *distinct types* — they never unify. You cannot cast
+a residue back into an Echo. This models real information loss: once a hash replaces a
+plaintext, or a summary replaces a document, the original is gone. Error-Lang makes
+that boundary visible at compile time and enforces it at runtime.
+
+See link:docs/Echo-Decomposition.adoc[docs/Echo-Decomposition.adoc] and
+link:spec/type-system.md[spec/type-system.md] §7 for the full specification.
+
+=== The Paradoxes
+
+Ten core quirks make implicit language assumptions explicit:
+
+1. **Type Quantum Superposition** — unannotated variables exist in multiple types until first use
+2. **Scope Leakage** — variables escape blocks on prime-numbered lines
+3. **Positional Operator Semantics** — `+` adds on even columns, concatenates on odd
+4. **Context-Collapse Keywords** — `maybe`, `sometimes`, `usually` affect runtime semantics
+5. **Temporal Corruption** — previous run history infects current execution
+6. **Reserved Word Roulette** — keywords shift meaning by context
+7. **Arithmetic Drift** — math accumulates small deterministic errors
+8. **Null Propagation Cascade** — null spreads like a virus through dependent variables
+9. **Global State Entanglement** — globals affect each other in non-local ways
+10. **Memory Phantom** — freed memory sometimes persists
+
+=== The Gutter Zone
+
+[source,error-lang]
+----
+main
+    let e = echo(42, "answer")
+    let r = echo_to_residue(e)     # stability 100 → 85
+
+    gutter
+        # Code here is executed but errors are contained.
+        # A residue cannot recover its witness — this is both
+        # a type error and a runtime error:
+        println(echo_input(r))
+    end
+
+    println("Still running after the gutter.")
+end
+----
+
+The `gutter` block is the pedagogically-safe error zone: errors inside it are
+injected, observed, and then *recovered from* — the program continues. It teaches
+error handling without halting the learning session.
+
+== How to Run Programs
+
+=== Prerequisites
+
+* https://deno.land[Deno] (runtime)
+
+=== Quick start
+
+[source,bash]
+----
+git clone https://github.com/hyperpolymath/error-lang.git
+cd error-lang
+deno run -A cli/runtime.js examples/01-hello-world.err
+deno run -A cli/runtime.js examples/11-echo-decomposition.err
+----
+
+=== Available CLI tools
+
+[source,bash]
+----
+deno run -A cli/runtime.js     <program.err>   # Run a program
+deno run -A cli/analyze.js     <program.err>   # Stability analysis
+deno run -A cli/five-whys.js   <program.err>   # Root cause trace
+deno run -A cli/layer-navigator.js <program.err> # Five-layer view
+deno run -A cli/visual-feedback.js <program.err> # Haptics output
+----
+
+== Architecture
+
+=== The pipeline
+
+[source]
+----
+Source (.err)
+    │
+    ▼ [Lexer — tokenizes; Echo/EchoR are keywords]
+    │
+    ▼ [Parser — produces AST; parses Echo<A,B> type annotations]
+    │
+    ▼ [Type Checker — unifies types; enforces Echo/EchoR irreversibility]
+    │
+    ▼ [Codegen — emits bytecode; Echo builtins map to dedicated opcodes]
+    │
+    ▼ [VM — executes; echo_to_residue debits stability score]
+    │
+Output + Stability Score + Haptics
+----
+
+=== Key source locations
+
+[cols="1,2"]
+|===
+| Path | What lives there
+
+| `compiler/src/Types.res` | Token and type AST definitions (including `TyEcho`, `TyEchoResidue`)
+| `compiler/src/Lexer.res` | Tokenizer; `Echo`/`EchoR` keyword map
+| `compiler/src/Parser.res` | AST builder; type expression parser (handles `>>` splitting)
+| `compiler/src/TypeChecker.res` | Type inference + unification; Echo builtin rules
+| `compiler/src/Bytecode.res` | `VEcho`/`VResidue` runtime values; Echo opcodes
+| `compiler/src/VM.res` | Stack VM; `echo_to_residue` debits `echoEraseCost = 15.0`
+| `compiler/src/Codegen.res` | AST → bytecode; Echo builtins → dedicated opcodes
+| `compiler/test/` | Type-checker, parser, lexer, and runtime tests
+| `cli/` | Deno-based CLI tools (the runnable implementation)
+| `examples/` | Annotated `.err` programs (01–11 + others)
+| `spec/` | EBNF grammar, type-system spec, axiomatic/operational semantics
+| `docs/` | Human-readable design documents (AsciiDoc)
+| `contractiles/` | Operational invariants, recovery semantics, trust, roadmap
+| `.machine_readable/6a2/` | Machine-readable manifests (STATE, META, AGENTIC, etc.)
+|===
+
+NOTE: `compiler/src/*.res` is a *reference frontend* written in a non-standard ReScript
+dialect. The runnable implementation is `cli/`. The ReScript tree does not build against
+mainstream ReScript — this is a pre-existing intentional choice pending AffineScript
+re-target. Do not attempt to fix it by removing `.res` files.
+
+=== The Compiler note (important for contributors)
+
+The `compiler/` directory uses an early, non-standard ReScript dialect:
+`return`/`break` statements, `dict<K,V>` with non-string keys, and element-returning
+`arr[i]`. This dialect predates any standard toolchain. A formal
+*AffineScript re-target* (ADR-pending) will migrate the reference frontend to standard
+tooling. Until then, follow each file's established idioms when extending the compiler.
+
+== Documentation Map
+
+[cols="1,2"]
+|===
+| Document | Purpose
+
+| link:README.adoc[README.adoc] | Project overview and quick-start (GitHub landing page)
+| link:EXPLAINME.adoc[EXPLAINME.adoc] | This file — comprehensive orientation
+| link:spec/type-system.md[spec/type-system.md] | Type system specification (including §7 Echo Types)
+| link:spec/grammar.ebnf[spec/grammar.ebnf] | Canonical EBNF grammar
+| link:docs/Echo-Decomposition.adoc[docs/Echo-Decomposition.adoc] | Echo types — authoritative narrative
+| link:docs/Design-Philosophy.adoc[docs/Design-Philosophy.adoc] | Why the language is designed this way
+| link:docs/Error-Lang.adoc[docs/Error-Lang.adoc] | Full language reference
+| link:docs/Error-Categories.adoc[docs/Error-Categories.adoc] | Nine error categories + stability debits
+| link:docs/Curriculum.adoc[docs/Curriculum.adoc] | Lesson sequence (Lessons 1–11)
+| link:docs/Educational-Framework.adoc[docs/Educational-Framework.adoc] | Pedagogy and learning theory
+| link:contractiles/README.adoc[contractiles/README.adoc] | Operational framework overview
+| link:.machine_readable/6a2/STATE.a2ml[.machine_readable/6a2/STATE.a2ml] | Current project state (for AI agents)
+| link:0-AI-MANIFEST.a2ml[0-AI-MANIFEST.a2ml] | AI agent gateway manifest (read first)
+|===
+
+== What Comes Next
+
+=== Imminent (ADR-pending)
+
+* **AffineScript re-target** — migrate `compiler/src/*.res` to a standard, buildable
+  dialect. This resolves the `governance / Language / package anti-pattern policy` CI
+  failure (ReScript ban) that currently hits every PR from `main`.
+
+=== Medium-term
+
+* **First-class functions in VM** — enables whole-fibre `Echo` (the full Agda proof
+  that `f x ≡ y`, not just a pairing); the current single-witness runtime is a stepping
+  stone.
+
+=== Long-term
+
+* **Formal Echo soundness proof in Agda** — the `echo-types` repo carries the Agda
+  mechanization; Error-Lang will eventually include a formal bridge between its runtime
+  model and the Agda proof.
+* **Benchmark lineage chains** — measure erasure cost against the theoretical
+  Landauer bound; link Error-Lang's `echoEraseCost` to the physics.
+
+== For AI Agents
+
+Read link:0-AI-MANIFEST.a2ml[0-AI-MANIFEST.a2ml] first — it is the canonical gateway
+for AI agents. Then read link:.machine_readable/6a2/STATE.a2ml[STATE.a2ml] for current
+project state.
+
+Key constraints (from link:.machine_readable/6a2/AGENTIC.a2ml[AGENTIC.a2ml]):
+
+* Never make `echo_to_residue` a silent cast
+* Never let `EchoR<A,B>` unify with or coerce to `Echo<A,B>`
+* Never hide the erasure stability debit (`[Stab-Erase]`)
+* Never delete spec files (`spec/grammar.ebnf`, `spec/SPEC.core.scm`)
+* Never use banned languages (TypeScript, Python, Go, Node.js)
+* Never commit secrets
+* All new GitHub Actions must be SHA-pinned
+* All new source files must have SPDX-License-Identifier headers
+* Never use the AGPL license (use MPL-2.0)
+* SCM files live ONLY in `.machine_readable/` — root copies are symlinks

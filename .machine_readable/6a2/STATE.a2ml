@@ -4,41 +4,79 @@
 # STATE.a2ml — Error Lang project state
 [metadata]
 project = "error-lang"
-version = "0.4.0"
-last-updated = "2026-02-07"
+version = "0.5.0"
+last-updated = "2026-06-02"
 status = "active"
-session = "converted from scheme — 2026-04-11"
+session = "Echo types (structured loss) — 2026-06-02"
 
 [project-context]
 name = "Error Lang"
-purpose = """Merge error-lang-playground into main repo"""
+purpose = """
+Add Echo types (Echo<A,B> / EchoR<A,B>) as Error-Lang's first-class, visible
+form of structured loss. Port the echo-types (Agda) / EchoTypes.jl (Julia)
+lineage into the compiler pipeline, type checker, VM, and documentation.
+Governing invariant: decomposition must be visible.
+"""
 completion-percentage = 100
 
 [position]
 phase = "production-ready"   # design | implementation | testing | maintenance | archived
-maturity = "experimental"  # experimental | alpha | beta | production | lts
+maturity = "experimental"    # experimental | alpha | beta | production | lts
 
-[route-to-mvp]
-milestones = [
-  # No milestones recorded
+[what-was-done]
+# Session 2026-06-02 — Echo types (structured loss)
+additions = [
+  "Echo<A,B> and EchoR<A,B> types added to: lexer (keywords), parser (type annotations), type checker (TyEcho/TyEchoR, unification, builtins), codegen (dedicated opcodes), VM (VEcho/VResidue, stability debit)",
+  "Five builtins mirroring EchoTypes.jl: echo, echo_to_residue, echo_input, echo_output, residue_strictly_loses",
+  "Stability debit: echoEraseCost = 15.0 charged by OpEchoToResidue, never on projection",
+  "Irreversibility: TyEcho never unifies with TyEchoR; echo_input is type+runtime error on EchoR",
+  "Tests: type-checker (10), parser (1 comprehensive), lexer (2), runtime (5) across three decomposition planes",
+  "New docs: docs/Echo-Decomposition.adoc (authoritative), spec/type-system.md §7, docs/Design-Philosophy.adoc section, docs/Error-Lang.adoc section, docs/Curriculum.adoc Lesson 11, docs/Educational-Framework.adoc, docs/Error-Categories.adoc echo-erasure row",
+  "New example: examples/11-echo-decomposition.err (narrated, with gutter zone)",
+  "Updated manifests: 0-AI-MANIFEST.a2ml (core narrative + invariants), META.a2ml (ADR-0001), NEUROSYM.a2ml (3 symbolic rules), ECOSYSTEM.a2ml (lineage), AGENTIC.a2ml (constraint)",
+  "README.adoc decompositional framing and Echo introduction",
+  "EXPLAINME.adoc created (human/agent orientation document)",
+  "contractiles/ updated: Mustfile (Error-Lang invariants), Dustfile (recovery handlers), trust/Trustfile.hs (verification), lust/Intentfile (roadmap)",
+  "CI hardening: casket-pages.yml, codeql.yml, hypatia-scan.yml get timeout-minutes (separate PR #18)",
 ]
+
+[current-ci-status]
+# As of 2026-06-02, PR #17 (Echo types) check status:
+passing = [
+  "Hypatia Neurosymbolic Analysis",
+  "CodeQL Analysis (javascript-typescript)",
+  "governance / Licence consistency",
+  "governance / Guix primary / Nix fallback policy",
+  "governance / Well-Known (RFC 9116 + RSR)",
+  "governance / Workflow security linter",
+  "governance / Trusted-base reduction policy",
+  "governance / Validate Hypatia baseline",
+  "governance / Code quality + docs",
+  "governance / Security policy checks",
+]
+failing = [
+  "governance / Language / package anti-pattern policy",
+]
+failing-reason = """
+The anti-pattern policy bans ReScript (.res files) estate-wide. This failure
+is PRE-EXISTING on main — it fails identically there. It is NOT caused by
+Echo types or any recent work. Resolution: AffineScript re-target (INTENT-001,
+ADR-pending). Do NOT attempt to fix by removing .res files.
+"""
 
 [blockers-and-issues]
 issues = [
-  "Backend architecture decision: bytecode VM vs transpile to JS",
+  "governance / Language / package anti-pattern policy — permanent pre-existing failure (ReScript ban); resolves only with AffineScript re-target",
 ]
 
 [critical-next-actions]
 actions = [
-  "Decide on backend strategy (bytecode vs transpile)",
-  "Complete Zig FFI bindings",
-  "Start LSP server skeleton",
-  "Design computational haptics visualization protocol",
-  "Complete backend/codegen",
-  "Complete LSP server",
-  "Create VS Code extension prototype",
+  "AffineScript re-target: migrate compiler/src/*.res to standard dialect (INTENT-001)",
+  "First-class functions in VM: enable whole-fibre Echo (INTENT-002)",
+  "LSP hover for Echo decomposition tracking (INTENT-005)",
 ]
 
 [maintenance-status]
-last-run-utc = "2026-02-07T00:00:00Z"
-last-result = "unknown"  # unknown | pass | warn | fail
+last-run-utc = "2026-06-02T00:00:00Z"
+last-result = "pass"   # unknown | pass | warn | fail
+notes = "All checks pass except the pre-existing governance ReScript ban."

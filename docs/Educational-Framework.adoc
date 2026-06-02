@@ -437,6 +437,7 @@ Students can see and modify aspects interactively!
 - AST visualization
 - How code becomes data structures
 - Tree traversal and transformation
+- Structured loss with Echo: `echo_to_residue` as a visible, irreversible decomposition step (`Echo<A,B>` → `EchoR<A,B>`), and why the witness cannot be recovered — see `docs/Echo-Decomposition.adoc`
 - **Layer focus:** AST (Layer 3)
 
 === Week 7-8: Parsing and Grammars
