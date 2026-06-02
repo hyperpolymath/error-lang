@@ -20,6 +20,11 @@ can-create-files = true
 # - Never use banned languages (TypeScript, Python, Go, etc.)
 # - Never place state files in repository root (must be in .machine_readable/)
 # - Never use AGPL license (use MPL-2.0)
+# - Never break VISIBLE DECOMPOSITION for Echo types:
+#     * do not make echo_to_residue a silent cast
+#     * do not let EchoR<A,B> behave like / coerce to Echo<A,B>
+#     * do not hide the erasure stability debit ([Stab-Erase])
+#   (see docs/Echo-Decomposition.adoc, spec/type-system.md §7)
 
 [maintenance-integrity]
 fail-closed = true

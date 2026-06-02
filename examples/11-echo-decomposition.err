@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: MPL-2.0
+# Example: Structured Loss with Echo
+# Learning: decomposition must be VISIBLE — loss can be structured, but never free or hidden
+
+main
+    # An Echo is a retained witness plus the visible output it reached.
+    # echo(42, "answer") : Echo<Int, String>  — "input 42 reached output answer"
+    let e = echo(42, "answer")
+
+    # While we hold the Echo, both halves are recoverable:
+    println("witness:", echo_input(e))   # 42
+    println("output: ", echo_output(e))  # "answer"
+
+    # THE DECOMPOSITION STEP.
+    # echo_to_residue erases the witness, leaving a non-recoverable residue.
+    # This is not a silent cast — it debits the Stability Score ([Stab-Erase]).
+    let r = echo_to_residue(e)           # EchoR<Int, String> ; stability 100 -> 85
+
+    # The output survives erasure...
+    println("output still:", echo_output(r))      # "answer"
+    # ...and the loss itself is observable:
+    println("strictly loses:", residue_strictly_loses(r))   # true
+
+    gutter
+        # The witness is genuinely gone. This is a type error AND a runtime error:
+        # a residue is non-recoverable — EchoR never behaves like an Echo.
+        println(echo_input(r))
+    end
+
+    println("Still running — but the witness is not coming back.")
+end
+
+# 🎓 LEARNING OUTCOME:
+# Echo<A, B>   = retained witness + visible output
+# EchoR<A, B>  = non-recoverable residue after erasure
+# echo_to_residue = the explicit, stability-costed decomposition step
+#
+# The invariant: DECOMPOSITION MUST BE VISIBLE.
+# - echo_to_residue is never a silent cast (watch the stability score drop)
+# - EchoR is never an Echo with a missing field (echo_input on it is rejected)
+# - the stability debit is charged exactly once, never on mere projection
+#
+# See docs/Echo-Decomposition.adoc and spec/type-system.md §7.
