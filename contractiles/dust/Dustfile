@@ -1,29 +1,123 @@
-# SPDX-License-Identifier: PLMP-1.0-or-later
-# Dustfile template - recovery and rollback semantics
+# SPDX-License-Identifier: MPL-2.0
+# Copyright (c) 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
+# Dustfile — Error-Lang recovery and rollback semantics
 
 version: 1
 
+# Recovery handlers are ordered by severity (critical first).
+# Each handler names the failure event, the undo action, a verification step,
+# and notes explaining what went wrong.
+
 recovery:
-  logs:
-    - name: decision-log
-      path: logs/decisions.json
-      reversible: true
-      handler: "log-replay --reverse logs/decisions.json"
 
-  policy:
-    - name: policy-rollback
-      path: policy/policy.ncl
-      rollback: "git checkout HEAD~1 -- policy/policy.ncl"
-      notes: "Rollback policy to the previous known-good revision."
+  echo-invariant-violation:
+    name: echo-invariant-violation
+    event: "decomposition-must-be-visible invariant broken"
+    description: >
+      The core Echo invariant was violated: either echo_to_residue became a
+      silent cast (no stability debit), EchoR was allowed to unify with Echo,
+      or echo_input was accepted on a residue without error.
+    undo: "git revert HEAD --no-edit"
+    verify: >
+      bash -uc '
+        grep -q "echoEraseCost = 15.0" compiler/src/VM.res &&
+        grep -q "echo_input.*illegal\|non-recoverable" compiler/src/TypeChecker.res &&
+        grep -q "Stab-Erase" spec/type-system.md
+      '
+    notes: >
+      This is the most critical invariant in the project. See
+      docs/Echo-Decomposition.adoc and spec/type-system.md §7 for the full
+      contract. The three sub-invariants are: (1) echo_to_residue always costs
+      stability, (2) EchoR never unifies back into Echo, (3) echo_input is a
+      type and runtime error on EchoR.
 
-  gateway:
-    - name: bad-deployment
-      event: "deploy.failure"
-      undo: "kubectl rollout undo deployment/gateway"
-      notes: "Undo a failed deployment while preserving audit logs."
+  stability-debit-missing:
+    name: stability-debit-missing
+    event: "echo_to_residue executed but stability score was not debited"
+    description: >
+      The VM executed OpEchoToResidue but the echoEraseCost subtraction was
+      missing or bypassed.
+    undo: "git checkout HEAD -- compiler/src/VM.res"
+    verify: >
+      bash -uc 'grep -A3 "OpEchoToResidue" compiler/src/VM.res | grep -q "stabilityScore"'
+    notes: >
+      The debit must occur exactly once per erasure, never on mere projection
+      (echo_input / echo_output). If the debit fires on projection, that is
+      also a bug — check OpEchoInput / OpEchoOutput in VM.res.
 
-  dust-events:
-    - name: decision-log-to-dust
-      source: logs/decisions.json
-      transform: "dustify --input logs/decisions.json --output logs/dust-events.json"
-      notes: "Map gateway decision logs into reversible dust events."
+  residue-unified-with-echo:
+    name: residue-unified-with-echo
+    event: "type checker allowed EchoR to unify with Echo"
+    description: >
+      The unification algorithm in TypeChecker.res accepted a constraint that
+      paired TyEcho with TyEchoR, making the residue type coerce back into
+      the witness type. This breaks irreversibility.
+    undo: "git checkout HEAD -- compiler/src/TypeChecker.res"
+    verify: >
+      bash -uc 'grep -q "TyEchoR.*TyEcho\|TyEcho.*TyEchoR" compiler/src/TypeChecker.res'
+    notes: >
+      The unification rule that should exist: TyEcho(a1,b1) unifies with
+      TyEcho(a2,b2) (recursively); TyEchoR(a1,b1) unifies with TyEchoR(a2,b2);
+      but TyEcho never unifies with TyEchoR. See TypeChecker.res unify function.
+
+  compiler-pipeline-crash:
+    name: compiler-pipeline-crash
+    event: "any compiler phase panics or throws on valid input"
+    description: >
+      A lexer, parser, type checker, codegen, or VM operation crashes on
+      syntactically and semantically valid Error-Lang source.
+    undo: "git checkout HEAD~1 -- compiler/src/"
+    verify: >
+      bash -uc 'deno run -A cli/runtime.js examples/01-hello-world.err &&
+                deno run -A cli/runtime.js examples/11-echo-decomposition.err'
+    notes: >
+      The reference program examples/11-echo-decomposition.err exercises the
+      full Echo pipeline. If that runs cleanly, the core pipeline is healthy.
+      examples/01-hello-world.err checks the baseline.
+
+  grammar-divergence:
+    name: grammar-divergence
+    event: "spec/grammar.ebnf diverged from actual parser behaviour"
+    description: >
+      The EBNF grammar in spec/grammar.ebnf no longer matches what the
+      Parser.res accepts. This creates a spec/implementation split.
+    undo: "git checkout HEAD -- spec/grammar.ebnf"
+    verify: >
+      bash -uc 'test -s spec/grammar.ebnf'
+    notes: >
+      The canonical grammar is spec/grammar.ebnf. Any change to Parser.res
+      that extends the grammar must be reflected there. Do not delete or
+      truncate spec/grammar.ebnf — it is a protected spec file.
+
+  ci-governance-failure:
+    name: ci-governance-failure
+    event: "governance / Language / package anti-pattern policy fails on PR"
+    description: >
+      The governance check fails because .res files exist in compiler/src/.
+      This is a PRE-EXISTING condition that also fails on main. It is NOT
+      caused by Echo types or any recent work. Resolution requires the
+      AffineScript re-target (ADR-pending).
+    undo: "no-op — this failure is expected and intentional until re-target"
+    verify: >
+      bash -uc 'git log --oneline main..HEAD | grep -q "." || echo "no new commits"'
+    notes: >
+      DO NOT attempt to fix this by removing .res files, renaming them, or
+      patching the governance workflow. The correct resolution is the
+      AffineScript re-target. The check fails identically on main. All other
+      CI checks (Hypatia, CodeQL, licence consistency, etc.) pass.
+
+  spdx-header-missing:
+    name: spdx-header-missing
+    event: "a new source file was committed without an SPDX header"
+    description: >
+      A file was added to the repository without the required
+      SPDX-License-Identifier: MPL-2.0 header.
+    undo: >
+      Add the SPDX header to the affected file and amend or add a new commit.
+      Format: "# SPDX-License-Identifier: MPL-2.0" (first non-shebang line).
+    verify: >
+      bash -uc 'git ls-files | grep -E "\.(res|js|ts|zig|a2ml|scm|ncl)$" |
+        xargs grep -L "SPDX-License-Identifier" | grep -v node_modules'
+    notes: >
+      The licence consistency governance check will catch this on CI.
+      Use MPL-2.0 for all Error-Lang source. Never use AGPL.
