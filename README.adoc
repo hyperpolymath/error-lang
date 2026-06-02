@@ -61,6 +61,8 @@ Error-Lang makes programming learnable the way crafts are learnable - through di
 
 Unlike traditional teaching languages that hide complexity, Error-Lang **exposes complexity** and makes it explorable through **computational haptics** - visual feedback that lets you _feel_ code quality like a craftsperson feels their materials.
 
+Error-Lang is a *dissembling*, *decompositional* language: programs, syntax, semantics, and types can decay, decompose, and destabilise over time — and the language makes that decomposition **visible** rather than hiding it. Its `Echo` types give *structured loss* a first-class shape (`Echo<A,B>` retained witness + visible output; `EchoR<A,B>` the non-recoverable residue after `echo_to_residue`, which debits stability). The governing rule is **decomposition must be visible**. See `docs/Echo-Decomposition.adoc`.
+
 === The Craftsperson Analogy
 
 [quote, The Design Philosophy]

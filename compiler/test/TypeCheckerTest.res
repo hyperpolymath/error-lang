@@ -648,6 +648,75 @@ let testResidueStrictlyLoses = () => {
   assertNoErrors(result, "residue_strictly_loses returns Bool")
 }
 
+let testResidueDoesNotUnifyBackIntoEcho = () => {
+  // let e: Echo<Int, String> = echo_to_residue(echo(1, "a"))  — residue is not an Echo
+  let prog: program = {
+    declarations: [
+      StmtDecl(
+        LetStmt({
+          mutable_: false,
+          name: "e",
+          type_: Some(Types.TyEcho(Some(Types.TyInt), Some(Types.TyString))),
+          value: Call(
+            Ident("echo_to_residue", dummyLoc),
+            [echoCall(IntLit(1, dummyLoc), StringLit("a", dummyLoc))],
+            dummyLoc,
+          ),
+          loc: dummyLoc,
+        }),
+      ),
+    ],
+    loc: dummyLoc,
+  }
+  let result = checkProgram(prog)
+  assertHasErrors(result, "EchoR does not unify back into Echo")
+}
+
+let testNoImplicitEchoToOutputCoercion = () => {
+  // let s: String = echo(1, "a")  — an Echo is not its output; no implicit Echo -> B
+  let prog: program = {
+    declarations: [
+      StmtDecl(
+        LetStmt({
+          mutable_: false,
+          name: "s",
+          type_: Some(Types.TyString),
+          value: echoCall(IntLit(1, dummyLoc), StringLit("a", dummyLoc)),
+          loc: dummyLoc,
+        }),
+      ),
+    ],
+    loc: dummyLoc,
+  }
+  let result = checkProgram(prog)
+  assertHasErrors(result, "no implicit Echo<A,B> -> B coercion")
+}
+
+let testEchoOutputOnResidue = () => {
+  // let s: String = echo_output(echo_to_residue(echo(1, "a")))  — output survives erasure
+  let residue = Call(
+    Ident("echo_to_residue", dummyLoc),
+    [echoCall(IntLit(1, dummyLoc), StringLit("a", dummyLoc))],
+    dummyLoc,
+  )
+  let prog: program = {
+    declarations: [
+      StmtDecl(
+        LetStmt({
+          mutable_: false,
+          name: "s",
+          type_: Some(Types.TyString),
+          value: Call(Ident("echo_output", dummyLoc), [residue], dummyLoc),
+          loc: dummyLoc,
+        }),
+      ),
+    ],
+    loc: dummyLoc,
+  }
+  let result = checkProgram(prog)
+  assertNoErrors(result, "echo_output on a residue yields the retained output type")
+}
+
 // ============================================
 // Run All Tests
 // ============================================
@@ -713,6 +782,9 @@ let runAllTests = () => {
   testEchoInputOnResidueFails()
   testEchoOutputRetained()
   testResidueStrictlyLoses()
+  testResidueDoesNotUnifyBackIntoEcho()
+  testNoImplicitEchoToOutputCoercion()
+  testEchoOutputOnResidue()
 
   Console.log("")
   Console.log("=== Tests Complete ===")

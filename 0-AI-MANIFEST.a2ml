@@ -9,11 +9,29 @@ project: error-lang
 type: programming-language
 owner: hyperpolymath
 description: >
-  Error-first programming language with graduated error levels and ReScript playground compiler.
+  A dissembling / decompositional educational programming language. Programs,
+  syntax, semantics, and types can decay, decompose, and destabilise over time,
+  and the language EXPOSES that decomposition (consequence amplification +
+  stability scoring) rather than hiding it. Error-first with graduated error
+  levels and a ReScript playground compiler.
 license: MPL-2.0
+
+## Core Narrative (read before reasoning about features)
+
+Error-Lang is not merely "a language with errors." It is decompositional:
+the distinctive claim is that decomposition is itself something the language
+exposes and reasons about. Echo types make STRUCTURED LOSS first-class:
+  - Echo<A, B>        retained witness + visible output (a fibre witness)
+  - EchoR<A, B>       residue after irreversible erasure (witness gone)
+  - echo_to_residue   explicit decomposition step; debits stability ([Stab-Erase])
+Governing invariant: DECOMPOSITION MUST BE VISIBLE — echo_to_residue is never a
+silent cast, EchoR is never an Echo with a missing field, and the stability
+debit is never hidden. See docs/Echo-Decomposition.adoc and spec/type-system.md §7.
 
 ## Critical Invariants
 
+- Decomposition must be visible: never make echo_to_residue a silent cast,
+  never let EchoR behave like Echo, never hide the erasure stability debit
 - SCM files ONLY in `.machine_readable/` (root copies are symlinks)
 - NEVER delete spec files: grammar, SPEC.core.scm
 - NEVER use banned languages: TypeScript, Node.js, npm, Go, Python
@@ -58,6 +76,8 @@ license: MPL-2.0
 - `playground/compiler/src/lexer/Lexer.res` — @taxonomy: compiler/lexer
 - `playground/compiler/src/parser/Parser.res` — @taxonomy: compiler/parser
 - `editors/error-lang.tmLanguage.json` — @taxonomy: editors/textmate-grammar
+- `docs/Echo-Decomposition.adoc` — @taxonomy: docs/echo-decomposition
+- `spec/type-system.md` — @taxonomy: spec/type-system
 
 ## Session Startup Sequence
 
