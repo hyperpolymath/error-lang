@@ -292,6 +292,18 @@ let typeExprToString = (t: typeExpr): string => {
   | TyString => "String"
   | TyBool => "Bool"
   | TyArray(inner) => `Array<${typeExprToString(inner)}>`
+  | TyEcho(a, b) =>
+    switch (a, b) {
+    | (None, _) => "Echo"
+    | (Some(ta), None) => `Echo<${typeExprToString(ta)}>`
+    | (Some(ta), Some(tb)) => `Echo<${typeExprToString(ta)}, ${typeExprToString(tb)}>`
+    }
+  | TyEchoResidue(a, b) =>
+    switch (a, b) {
+    | (None, _) => "EchoR"
+    | (Some(ta), None) => `EchoR<${typeExprToString(ta)}>`
+    | (Some(ta), Some(tb)) => `EchoR<${typeExprToString(ta)}, ${typeExprToString(tb)}>`
+    }
   | TyIdent(name) => name
   }
 }

@@ -133,6 +133,8 @@ let keywords: Dict.t<tokenType> = Dict.fromArray([
   ("String", TString),
   ("Bool", TBool),
   ("Array", TArray),
+  ("Echo", TEcho),
+  ("EchoR", TEchoR),
   ("print", Identifier("print")),
   ("println", Identifier("println")),
 ])

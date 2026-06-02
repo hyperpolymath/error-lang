@@ -54,6 +54,8 @@ let testKeywords = () => {
     ("String", TString),
     ("Bool", TBool),
     ("Array", TArray),
+    ("Echo", TEcho),
+    ("EchoR", TEchoR),
   ]
 
   typePairs->Array.forEach(((kw, expected)) => {

@@ -16,6 +16,8 @@
     | [τ]                                  array
     | (τ₁, …, τₙ) → τᵣ                   function type
     | Struct(name)                         named struct
+    | Echo<τₐ, τᵦ>                         echo / fibre (structured loss)
+    | EchoR<τₐ, τᵦ>                        echo residue (witness erased)
     | Any                                  wildcard (unifies with all)
     | α                                    type variable (unification)
 ```
@@ -170,7 +172,16 @@ Type-related stability penalties:
     x previously Collapsed(τ₁)     new value has type τ₂     τ₁ ≠ τ₂
     ──────────────────────────────────────────────────────────────────  [Stab-Reassign]
     stability -= 15     (TypeInstability penalty for type-changing reassignment)
+
+    e : Echo<A, B>     echo_to_residue(e) : EchoR<A, B>
+    ──────────────────────────────────────────────────────  [Stab-Erase]
+    stability -= 15     (erasure of a witness is a thermodynamic act)
 ```
+
+See §7 for Echo types. The `[Stab-Erase]` rule is Error-Lang's signature move:
+structured loss is permitted, but **structure is not free** — collapsing an `Echo`
+to its `EchoR` residue destroys the input witness and incurs a Landauer-style debit
+(cf. `fiber_erasure_bound` in the EchoTypes.jl companion).
 
 ---
 
@@ -181,3 +192,90 @@ Type-related stability penalties:
 3. **Pedagogical monotonicity:** Annotations always improve stability (never penalised).
 4. **Gradual typing compatible:** `Any` unifies with everything, enabling partial typing.
 5. **No implicit narrowing:** Numeric widening only (Int → Float, never Float → Int).
+6. **Erasure irreversibility:** `Echo<A, B>` does not unify with `EchoR<A, B>`; once a
+   witness is erased, the residue cannot be used where a recoverable echo is required.
+
+---
+
+## 7. Echo Types (Structured Loss)
+
+Echo types give Error-Lang a first-class, runnable model of **structured loss** —
+*non-total erasure* — adapted from the constructive Agda library
+[`echo-types`](https://github.com/hyperpolymath/echo-types) and its finite,
+executable companion
+[`EchoTypes.jl`](https://github.com/hyperpolymath/EchoTypes.jl).
+
+### 7.1 Formation
+
+For a (conceptual) function `f : A → B` and an output `y : B`, the *echo* is the
+**fibre** of `f` over `y`: the proof-relevant collection of inputs that reach `y`.
+In Agda:
+
+```
+Echo f y  :=  Σ (x : A) , (f x ≡ y)
+```
+
+Error-Lang surfaces this as a type constructor indexed by the domain `A` and
+codomain `B`:
+
+```
+    A type     B type
+    ──────────────────────  [T-Echo]
+    Echo<A, B> type
+
+Sugar:
+    Echo<A>   ≡  Echo<A, ?>     (codomain inferred — treated as Any)
+    Echo       ≡  Echo<?, ?>     (opaque fallback / unresolved)
+```
+
+A runtime echo value is a **single fibre witness** `VEcho{input, output}`: one `x`
+that reached `y`. (The whole-fibre `fiber(f, domain, y)` of EchoTypes.jl awaits
+first-class functions in the VM; the witness is the faithful runtime compromise.)
+
+### 7.2 Residue and erasure
+
+`echo_to_residue` weakens an echo to its **residue** `EchoR<A, B>`: the input
+witness is **erased** (non-recoverable); only reachability of the output `y : B`
+is retained. This is the operational meaning of *structured loss* — the output
+constraint survives, the witness does not.
+
+```
+    Γ ⊢ e : Echo<A, B>
+    ──────────────────────────────────  [T-Erase]
+    Γ ⊢ echo_to_residue(e) : EchoR<A, B>     (+ [Stab-Erase], §5)
+```
+
+### 7.3 Unification
+
+`Echo` and `EchoR` unify structurally with their own kind, component-wise, and
+**never with each other** — encoding the irreversibility of erasure in the type
+system itself:
+
+```
+unify(Echo<A₁,B₁>,  Echo<A₂,B₂>)  = unify(A₁,A₂) ∧ unify(B₁,B₂)
+unify(EchoR<A₁,B₁>, EchoR<A₂,B₂>) = unify(A₁,A₂) ∧ unify(B₁,B₂)
+unify(Echo<…>,      EchoR<…>)     = ✗   (residue is not a recoverable echo)
+```
+
+### 7.4 Builtins
+
+Named to mirror EchoTypes.jl, so concepts map 1:1 across the three codebases:
+
+| Builtin | Type | Meaning |
+|---|---|---|
+| `echo(x, y)` | `(A, B) → Echo<A, B>` | construct a fibre witness: `x` reached `y` |
+| `echo_to_residue(e)` | `Echo<A, B> → EchoR<A, B>` | erase the witness (incurs `[Stab-Erase]`) |
+| `residue_strictly_loses(r)` | `EchoR<A, B> → Bool` | witness non-recoverability |
+| `echo_input(e)` | `Echo<A, B> → A` | recover the witness — **illegal on a residue** |
+| `echo_output(e)` | `Echo<A, B> \| EchoR<A, B> → B` | the retained output (survives erasure) |
+
+`echo_input` on an `EchoR` is a **type error** (and a runtime error): the witness
+is gone. This is the type system enforcing that loss, once structured, is real.
+
+### 7.5 Fidelity note
+
+Error-Lang is a runnable scripting language, not a proof assistant: the equality
+proof `f x ≡ y` is carried as a runtime-checkable pairing, not a HoTT path. The
+`echo-types` Agda library remains the source of mechanized truth; `EchoTypes.jl`
+is the executable finite-domain model; Error-Lang's `Echo`/`EchoR` are the
+operational, stability-aware embedding of the same lineage.
