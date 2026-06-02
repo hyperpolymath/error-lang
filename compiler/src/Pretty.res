@@ -61,8 +61,28 @@ let rec ppTypeExpr = (p, ty) =>
     emit(p, "[")
     ppTypeExpr(p, inner)
     emit(p, "]")
+  | TyEcho(a, b) => ppEchoLike(p, "Echo", a, b)
+  | TyEchoResidue(a, b) => ppEchoLike(p, "EchoR", a, b)
   | TyIdent(name) => emit(p, name)
   }
+
+// Print an Echo/EchoR head with its optional `<A>` or `<A, B>` arguments.
+and ppEchoLike = (p, head, a, b) => {
+  emit(p, head)
+  switch (a, b) {
+  | (None, _) => ()
+  | (Some(ta), None) =>
+    emit(p, "<")
+    ppTypeExpr(p, ta)
+    emit(p, ">")
+  | (Some(ta), Some(tb)) =>
+    emit(p, "<")
+    ppTypeExpr(p, ta)
+    emit(p, ", ")
+    ppTypeExpr(p, tb)
+    emit(p, ">")
+  }
+}
 
 and ppBinaryOp = (p, op) =>
   emit(

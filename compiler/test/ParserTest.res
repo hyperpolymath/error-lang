@@ -1118,6 +1118,61 @@ let testMultipleDeclarations = () => {
 }
 
 // ============================================
+// Echo type annotations
+// ============================================
+
+let testEchoAnnotations = () => {
+  suite("Parser: Echo type annotations")
+
+  // Full fibre annotation: Echo<Int, String>
+  let prog = parseSource("let e: Echo<Int, String> = 1")
+  switch prog.declarations[0] {
+  | Some(StmtDecl(LetStmt({name, type_}))) => {
+      assertEqual("echo let name", name, "e")
+      switch type_ {
+      | Some(TyEcho(Some(TyInt), Some(TyString))) =>
+        assertTrue("annotation is Echo<Int, String>", true)
+      | _ => assertTrue("annotation is Echo<Int, String>", false)
+      }
+    }
+  | _ => assertTrue("echo annotated let parsed", false)
+  }
+
+  // Residue annotation: EchoR<Int, String>
+  let prog2 = parseSource("let r: EchoR<Int, String> = 1")
+  switch prog2.declarations[0] {
+  | Some(StmtDecl(LetStmt({type_}))) =>
+    switch type_ {
+    | Some(TyEchoResidue(Some(TyInt), Some(TyString))) =>
+      assertTrue("annotation is EchoR<Int, String>", true)
+    | _ => assertTrue("annotation is EchoR<Int, String>", false)
+    }
+  | _ => assertTrue("residue annotated let parsed", false)
+  }
+
+  // Sugar: bare Echo (opaque) and single-arg Echo<Int>
+  let prog3 = parseSource("let e: Echo = 1")
+  switch prog3.declarations[0] {
+  | Some(StmtDecl(LetStmt({type_}))) =>
+    switch type_ {
+    | Some(TyEcho(None, None)) => assertTrue("bare Echo is opaque", true)
+    | _ => assertTrue("bare Echo is opaque", false)
+    }
+  | _ => assertTrue("bare echo annotated let parsed", false)
+  }
+
+  let prog4 = parseSource("let e: Echo<Int> = 1")
+  switch prog4.declarations[0] {
+  | Some(StmtDecl(LetStmt({type_}))) =>
+    switch type_ {
+    | Some(TyEcho(Some(TyInt), None)) => assertTrue("Echo<Int> infers codomain", true)
+    | _ => assertTrue("Echo<Int> infers codomain", false)
+    }
+  | _ => assertTrue("single-arg echo annotated let parsed", false)
+  }
+}
+
+// ============================================
 // Run All Parser Tests
 // ============================================
 
@@ -1143,6 +1198,7 @@ let runAll = () => {
   testFunctionCalls()
   testNestedStructures()
   testStructDeclarations()
+  testEchoAnnotations()
   testExpressionStatements()
   testErrorCases()
   testMultipleDeclarations()

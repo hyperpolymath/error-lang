@@ -28,6 +28,12 @@ type rec ty =
   | TyArray(ty)
   | TyFun(array<ty>, ty)
   | TyStruct(string)
+  // Echo<A, B> — fiber / retained-loss witness type (domain A, codomain B).
+  | TyEcho(ty, ty)
+  // EchoR<A, B> — residue: the A-witness has been erased (non-recoverable),
+  // only reachability of the B-output is retained. Deliberately does NOT unify
+  // with TyEcho, so the type system enforces the irreversibility of erasure.
+  | TyEchoR(ty, ty)
   | TyAny
   | TyVar(int)
 
@@ -114,9 +120,18 @@ let rec typeExprToTy = (te: typeExpr): ty => {
   | Types.TyString => TyString
   | Types.TyBool => TyBool
   | Types.TyArray(inner) => TyArray(typeExprToTy(inner))
+  | Types.TyEcho(a, b) => TyEcho(optTypeExprToTy(a), optTypeExprToTy(b))
+  | Types.TyEchoResidue(a, b) => TyEchoR(optTypeExprToTy(a), optTypeExprToTy(b))
   | Types.TyIdent(name) => TyStruct(name)
   }
 }
+// An omitted Echo type argument (`Echo<A>` or bare `Echo`) is treated as `Any`,
+// which unifies with everything — the codomain is left to be inferred from use.
+and optTypeExprToTy = (o: option<typeExpr>): ty =>
+  switch o {
+  | Some(t) => typeExprToTy(t)
+  | None => TyAny
+  }
 
 // ============================================
 // Type Display
@@ -134,6 +149,8 @@ let rec tyToString = (t: ty): string => {
     let paramStr = params->Array.map(tyToString)->Array.joinWith(", ")
     `(${paramStr}) -> ${tyToString(ret)}`
   | TyStruct(name) => name
+  | TyEcho(a, b) => `Echo<${tyToString(a)}, ${tyToString(b)}>`
+  | TyEchoR(a, b) => `EchoR<${tyToString(a)}, ${tyToString(b)}>`
   | TyAny => "Any"
   | TyVar(id) => `?${Int.toString(id)}`
   }
@@ -153,6 +170,8 @@ let rec resolve = (env: env, t: ty): ty => {
   | TyArray(inner) => TyArray(resolve(env, inner))
   | TyFun(params, ret) =>
     TyFun(params->Array.map(p => resolve(env, p)), resolve(env, ret))
+  | TyEcho(a, b) => TyEcho(resolve(env, a), resolve(env, b))
+  | TyEchoR(a, b) => TyEchoR(resolve(env, a), resolve(env, b))
   | _ => t
   }
 }
@@ -176,6 +195,11 @@ let rec unify = (env: env, a: ty, b: ty): bool => {
     true
   | (TyArray(ia), TyArray(ib)) => unify(env, ia, ib)
   | (TyStruct(na), TyStruct(nb)) => na == nb
+  // Echo and EchoR unify structurally with their own kind only. Crucially,
+  // Echo<_,_> does NOT unify with EchoR<_,_>: once a witness is erased the
+  // residue cannot be passed where a recoverable Echo is required.
+  | (TyEcho(a1, b1), TyEcho(a2, b2)) => unify(env, a1, a2) && unify(env, b1, b2)
+  | (TyEchoR(a1, b1), TyEchoR(a2, b2)) => unify(env, a1, a2) && unify(env, b1, b2)
   | (TyFun(pa, ra), TyFun(pb, rb)) =>
     if Array.length(pa) != Array.length(pb) {
       false
@@ -201,6 +225,27 @@ let widenNumeric = (a: ty, b: ty): ty => {
   | _ => TyInt
   }
 }
+
+// ============================================
+// Echo Builtins
+// ============================================
+
+// Runtime operations over Echo types, named to mirror EchoTypes.jl so the
+// concepts map 1:1 across error-lang, EchoTypes.jl and the echo-types Agda library:
+//   echo(x, y)                : (A, B) -> Echo<A, B>
+//   echo_to_residue(e)        : Echo<A, B> -> EchoR<A, B>   (erases the witness)
+//   residue_strictly_loses(r) : EchoR<A, B> -> Bool
+//   echo_input(e)             : Echo<A, B> -> A             (illegal on a residue)
+//   echo_output(e)            : Echo<A, B> | EchoR<A, B> -> B
+let echoBuiltins = [
+  "echo",
+  "echo_to_residue",
+  "residue_strictly_loses",
+  "echo_input",
+  "echo_output",
+]
+
+let isEchoBuiltin = (name: string): bool => Array.includes(echoBuiltins, name)
 
 // ============================================
 // Expression Type Inference
@@ -248,6 +293,9 @@ let rec inferExpr = (env: env, result: checkResult, e: expr): ty => {
 
   | Unary(op, operand, loc) =>
     inferUnaryOp(env, result, op, operand, loc)
+
+  | Call(Ident(name, _), args, loc) if isEchoBuiltin(name) =>
+    inferEchoBuiltin(env, result, name, args, loc)
 
   | Call(callee, args, loc) =>
     let calleeTy = inferExpr(env, result, callee)
@@ -436,6 +484,102 @@ and inferUnaryOp = (
       addError(result, `Bitwise NOT requires Int, got ${tyToString(tR)}`, loc)
     }
     TyInt
+  }
+}
+
+and inferEchoBuiltin = (
+  env: env,
+  result: checkResult,
+  name: string,
+  args: array<expr>,
+  loc: location,
+): ty => {
+  // Infer all arguments first so nested errors surface regardless of arity.
+  let argTys = args->Array.map(a => inferExpr(env, result, a))
+  let arity = Array.length(argTys)
+  let resolved = (i: int): ty => resolve(env, argTys->Array.getUnsafe(i))
+  let expectArity = (n: int): unit =>
+    if arity != n {
+      addError(
+        result,
+        `${name} expects ${Int.toString(n)} argument(s), got ${Int.toString(arity)}`,
+        loc,
+      )
+    }
+
+  switch name {
+  | "echo" =>
+    expectArity(2)
+    if arity == 2 {
+      TyEcho(resolved(0), resolved(1))
+    } else {
+      TyEcho(TyAny, TyAny)
+    }
+
+  | "echo_to_residue" =>
+    expectArity(1)
+    if arity >= 1 {
+      switch resolved(0) {
+      | TyEcho(a, b) => TyEchoR(a, b)
+      | TyAny => TyEchoR(TyAny, TyAny)
+      | other =>
+        addError(result, `echo_to_residue expects Echo<A, B>, got ${tyToString(other)}`, loc)
+        TyEchoR(TyAny, TyAny)
+      }
+    } else {
+      TyEchoR(TyAny, TyAny)
+    }
+
+  | "residue_strictly_loses" =>
+    expectArity(1)
+    if arity >= 1 {
+      switch resolved(0) {
+      | TyEchoR(_, _) | TyAny => TyBool
+      | other =>
+        addError(result, `residue_strictly_loses expects EchoR<A, B>, got ${tyToString(other)}`, loc)
+        TyBool
+      }
+    } else {
+      TyBool
+    }
+
+  | "echo_input" =>
+    expectArity(1)
+    if arity >= 1 {
+      switch resolved(0) {
+      | TyEcho(a, _) => a
+      | TyAny => TyAny
+      | TyEchoR(_, _) =>
+        addError(
+          result,
+          `echo_input: the input witness was erased by echo_to_residue — a residue is non-recoverable`,
+          loc,
+        )
+        TyAny
+      | other =>
+        addError(result, `echo_input expects Echo<A, B>, got ${tyToString(other)}`, loc)
+        TyAny
+      }
+    } else {
+      TyAny
+    }
+
+  | "echo_output" =>
+    expectArity(1)
+    if arity >= 1 {
+      switch resolved(0) {
+      // The output is retained by both the Echo and its residue.
+      | TyEcho(_, b) | TyEchoR(_, b) => b
+      | TyAny => TyAny
+      | other =>
+        addError(result, `echo_output expects Echo<A, B> or EchoR<A, B>, got ${tyToString(other)}`, loc)
+        TyAny
+      }
+    } else {
+      TyAny
+    }
+
+  | _ => TyAny
   }
 }
 

@@ -50,6 +50,13 @@ type opcode =
   | OpUpdateStability       // Recalculate stability score
   | OpInjectParadox(paradoxType)  // Activate a paradox
 
+  // Echo types (structured loss)
+  | OpEcho                  // Pop output then input, push a fiber witness VEcho{input, output}
+  | OpEchoToResidue         // Pop an echo, push its residue (erases the witness; costs stability)
+  | OpResidueStrictlyLoses  // Pop a value, push VBool(true) iff it is a residue
+  | OpEchoInput             // Pop an echo, push its input witness (runtime error on a residue)
+  | OpEchoOutput            // Pop an echo or residue, push its retained output
+
   // Debug
   | OpPrint(bool)           // Print (println if true)
   | OpHalt                  // Stop execution
@@ -86,6 +93,11 @@ and value =
   | VNil
   | VArray(array<value>)
   | VFunction({arity: int, address: int, name: string})
+  // A single fiber witness: input `x` reached output `y` (one element of `Echo<A, B>`).
+  | VEcho({input: value, output: value})
+  // The residue of an echo after erasure: the input witness is gone (non-recoverable),
+  // only the reached output is retained. This is `EchoR<A, B>` at runtime.
+  | VResidue({output: value})
 
 // Compiled bytecode chunk
 type chunk = {
@@ -119,6 +131,8 @@ let valueToString = (v: value): string => {
       `[${items}]`
     }
   | VFunction({name}) => `<function ${name}>`
+  | VEcho({input, output}) => `echo(${valueToString(input)} ↦ ${valueToString(output)})`
+  | VResidue({output}) => `residue(↦ ${valueToString(output)})`
   }
 }
 
@@ -156,6 +170,11 @@ let opcodeToString = (op: opcode): string => {
   | OpCheckpoint(name) => `CHECKPOINT "${name}"`
   | OpUpdateStability => "UPDATE_STABILITY"
   | OpInjectParadox(_) => "INJECT_PARADOX"
+  | OpEcho => "ECHO"
+  | OpEchoToResidue => "ECHO_TO_RESIDUE"
+  | OpResidueStrictlyLoses => "RESIDUE_STRICTLY_LOSES"
+  | OpEchoInput => "ECHO_INPUT"
+  | OpEchoOutput => "ECHO_OUTPUT"
   | OpPrint(println) => println ? "PRINTLN" : "PRINT"
   | OpHalt => "HALT"
   }

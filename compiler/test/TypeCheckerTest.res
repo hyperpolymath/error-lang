@@ -503,6 +503,152 @@ let testStringConcat = () => {
 }
 
 // ============================================
+// Test: Echo Types (structured loss)
+// ============================================
+
+// Helper: `echo(input, output)` call expression
+let echoCall = (input, output): expr =>
+  Call(Ident("echo", dummyLoc), [input, output], dummyLoc)
+
+let testEchoConstruct = () => {
+  // echo(1, "a") : Echo<Int, String>
+  let prog: program = {
+    declarations: [StmtDecl(ExprStmt(echoCall(IntLit(1, dummyLoc), StringLit("a", dummyLoc))))],
+    loc: dummyLoc,
+  }
+  let result = checkProgram(prog)
+  assertNoErrors(result, "echo(Int, String) constructs an Echo")
+}
+
+let testEchoAnnotationMatch = () => {
+  // let e: Echo<Int, String> = echo(1, "a")
+  let prog: program = {
+    declarations: [
+      StmtDecl(
+        LetStmt({
+          mutable_: false,
+          name: "e",
+          type_: Some(Types.TyEcho(Some(Types.TyInt), Some(Types.TyString))),
+          value: echoCall(IntLit(1, dummyLoc), StringLit("a", dummyLoc)),
+          loc: dummyLoc,
+        }),
+      ),
+    ],
+    loc: dummyLoc,
+  }
+  let result = checkProgram(prog)
+  assertNoErrors(result, "Echo<Int, String> annotation matches echo(1, \"a\")")
+}
+
+let testEchoAnnotationMismatch = () => {
+  // let e: Echo<Int, Bool> = echo(1, "a")  — codomain String ≠ Bool
+  let prog: program = {
+    declarations: [
+      StmtDecl(
+        LetStmt({
+          mutable_: false,
+          name: "e",
+          type_: Some(Types.TyEcho(Some(Types.TyInt), Some(Types.TyBool))),
+          value: echoCall(IntLit(1, dummyLoc), StringLit("a", dummyLoc)),
+          loc: dummyLoc,
+        }),
+      ),
+    ],
+    loc: dummyLoc,
+  }
+  let result = checkProgram(prog)
+  assertHasErrors(result, "Echo<Int, Bool> rejects echo(1, \"a\")")
+}
+
+let testEchoToResidue = () => {
+  // let r: EchoR<Int, String> = echo_to_residue(echo(1, "a"))
+  let prog: program = {
+    declarations: [
+      StmtDecl(
+        LetStmt({
+          mutable_: false,
+          name: "r",
+          type_: Some(Types.TyEchoResidue(Some(Types.TyInt), Some(Types.TyString))),
+          value: Call(
+            Ident("echo_to_residue", dummyLoc),
+            [echoCall(IntLit(1, dummyLoc), StringLit("a", dummyLoc))],
+            dummyLoc,
+          ),
+          loc: dummyLoc,
+        }),
+      ),
+    ],
+    loc: dummyLoc,
+  }
+  let result = checkProgram(prog)
+  assertNoErrors(result, "echo_to_residue produces EchoR<Int, String>")
+}
+
+let testEchoInputOnResidueFails = () => {
+  // echo_input(echo_to_residue(echo(1, "a")))  — witness erased, non-recoverable
+  let residue = Call(
+    Ident("echo_to_residue", dummyLoc),
+    [echoCall(IntLit(1, dummyLoc), StringLit("a", dummyLoc))],
+    dummyLoc,
+  )
+  let prog: program = {
+    declarations: [StmtDecl(ExprStmt(Call(Ident("echo_input", dummyLoc), [residue], dummyLoc)))],
+    loc: dummyLoc,
+  }
+  let result = checkProgram(prog)
+  assertHasErrors(result, "echo_input on a residue is rejected (irreversible erasure)")
+}
+
+let testEchoOutputRetained = () => {
+  // let s: String = echo_output(echo(1, "a"))  — output survives
+  let prog: program = {
+    declarations: [
+      StmtDecl(
+        LetStmt({
+          mutable_: false,
+          name: "s",
+          type_: Some(Types.TyString),
+          value: Call(
+            Ident("echo_output", dummyLoc),
+            [echoCall(IntLit(1, dummyLoc), StringLit("a", dummyLoc))],
+            dummyLoc,
+          ),
+          loc: dummyLoc,
+        }),
+      ),
+    ],
+    loc: dummyLoc,
+  }
+  let result = checkProgram(prog)
+  assertNoErrors(result, "echo_output recovers the retained output type (String)")
+}
+
+let testResidueStrictlyLoses = () => {
+  // let b: Bool = residue_strictly_loses(echo_to_residue(echo(1, "a")))
+  let residue = Call(
+    Ident("echo_to_residue", dummyLoc),
+    [echoCall(IntLit(1, dummyLoc), StringLit("a", dummyLoc))],
+    dummyLoc,
+  )
+  let prog: program = {
+    declarations: [
+      StmtDecl(
+        LetStmt({
+          mutable_: false,
+          name: "b",
+          type_: Some(Types.TyBool),
+          value: Call(Ident("residue_strictly_loses", dummyLoc), [residue], dummyLoc),
+          loc: dummyLoc,
+        }),
+      ),
+    ],
+    loc: dummyLoc,
+  }
+  let result = checkProgram(prog)
+  assertNoErrors(result, "residue_strictly_loses returns Bool")
+}
+
+// ============================================
 // Run All Tests
 // ============================================
 
@@ -558,6 +704,15 @@ let runAllTests = () => {
 
   // String concat
   testStringConcat()
+
+  // Echo types (structured loss)
+  testEchoConstruct()
+  testEchoAnnotationMatch()
+  testEchoAnnotationMismatch()
+  testEchoToResidue()
+  testEchoInputOnResidueFails()
+  testEchoOutputRetained()
+  testResidueStrictlyLoses()
 
   Console.log("")
   Console.log("=== Tests Complete ===")

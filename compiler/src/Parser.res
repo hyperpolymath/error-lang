@@ -553,6 +553,73 @@ and parsePrimary = (state: parserState): option<expr> => {
 }
 
 // ============================================
+// Type Annotation Parsing
+// ============================================
+
+// Consume a closing '>' for a type-argument list. Because the lexer greedily
+// produces `>>` as a single `GreaterGreater` token, a closing angle that sits
+// directly against an enclosing one (e.g. `Echo<Array<Int>>`) arrives fused.
+// We split it in place: consume one '>' worth and leave a `Greater` behind for
+// the enclosing type to close against.
+let rec expectCloseAngle = (state: parserState): unit => {
+  switch peek(state) {
+  | Some({type_: Greater}) => advance(state)->ignore
+  | Some({type_: GreaterGreater, loc}) =>
+    state.tokens[state.pos] = {type_: Greater, lexeme: ">", loc}
+  | Some(tok) => addDiagnostic(state, E0006, "Expected '>' to close type arguments", tok.loc)
+  | None => ()
+  }
+}
+
+// Parse an optional `<A>` or `<A, B>` argument list. Returns (first, second).
+and parseTypeArgs = (state: parserState): (option<typeExpr>, option<typeExpr>) => {
+  if check(state, Less) {
+    advance(state)->ignore
+    let first = parseTypeExpr(state)
+    let second = if match_(state, [Comma]) {
+      parseTypeExpr(state)
+    } else {
+      None
+    }
+    expectCloseAngle(state)
+    (first, second)
+  } else {
+    (None, None)
+  }
+}
+
+// Parse a type expression: primitives, Array<T>, Echo / Echo<A> / Echo<A, B>,
+// EchoR / EchoR<A> / EchoR<A, B>, or a named identifier type.
+and parseTypeExpr = (state: parserState): option<typeExpr> => {
+  switch peek(state) {
+  | Some({type_: TInt}) => { advance(state)->ignore; Some(TyInt) }
+  | Some({type_: TFloat}) => { advance(state)->ignore; Some(TyFloat) }
+  | Some({type_: TString}) => { advance(state)->ignore; Some(TyString) }
+  | Some({type_: TBool}) => { advance(state)->ignore; Some(TyBool) }
+  | Some({type_: TArray}) => {
+      advance(state)->ignore
+      switch parseTypeArgs(state) {
+      | (Some(inner), _) => Some(TyArray(inner))
+      // Bare `Array` with no parameter: default the element type to `Any`.
+      | (None, _) => Some(TyArray(TyIdent("Any")))
+      }
+    }
+  | Some({type_: TEcho}) => {
+      advance(state)->ignore
+      let (a, b) = parseTypeArgs(state)
+      Some(TyEcho(a, b))
+    }
+  | Some({type_: TEchoR}) => {
+      advance(state)->ignore
+      let (a, b) = parseTypeArgs(state)
+      Some(TyEchoResidue(a, b))
+    }
+  | Some({type_: Identifier(name)}) => { advance(state)->ignore; Some(TyIdent(name)) }
+  | _ => None
+  }
+}
+
+// ============================================
 // Statement Parsing
 // ============================================
 
@@ -567,12 +634,17 @@ let parseStatement = (state: parserState): option<stmt> => {
       switch peek(state) {
       | Some({type_: Identifier(name)}) => {
           advance(state)->ignore
-          // Optional type annotation (skip for now)
+          // Optional type annotation: `let x: Type = ...`
+          let type_ = if match_(state, [Colon]) {
+            parseTypeExpr(state)
+          } else {
+            None
+          }
           expect(state, Equal, "Expected '=' after variable name")->ignore
           switch parseExpression(state) {
           | Some(value) => {
               let loc = {start: startLoc.start, end_: currentLoc(state).end_, file: state.file}
-              Some(LetStmt({mutable_, name, type_: None, value, loc}))
+              Some(LetStmt({mutable_, name, type_, value, loc}))
             }
           | None => None
           }
@@ -809,14 +881,15 @@ let parseDeclaration = (state: parserState): option<decl> => {
           advance(state)->ignore
           expect(state, LParen, "Expected '(' after function name")->ignore
 
-          // Parse parameters
+          // Parse parameters (each with an optional `: Type` annotation)
           let params = ref([])
           skipNewlines(state)
           if !check(state, RParen) {
             switch peek(state) {
             | Some({type_: Identifier(pname), loc: ploc}) => {
                 advance(state)->ignore
-                params := Array.concat(params.contents, [{name: pname, type_: None, loc: ploc}])
+                let ptype = if match_(state, [Colon]) { parseTypeExpr(state) } else { None }
+                params := Array.concat(params.contents, [{name: pname, type_: ptype, loc: ploc}])
               }
             | _ => ()
             }
@@ -825,7 +898,8 @@ let parseDeclaration = (state: parserState): option<decl> => {
               switch peek(state) {
               | Some({type_: Identifier(pname), loc: ploc}) => {
                   advance(state)->ignore
-                  params := Array.concat(params.contents, [{name: pname, type_: None, loc: ploc}])
+                  let ptype = if match_(state, [Colon]) { parseTypeExpr(state) } else { None }
+                  params := Array.concat(params.contents, [{name: pname, type_: ptype, loc: ploc}])
                 }
               | _ => ()
               }
@@ -833,12 +907,17 @@ let parseDeclaration = (state: parserState): option<decl> => {
           }
           expect(state, RParen, "Expected ')' after parameters")->ignore
 
-          // Optional return type (skip for now)
+          // Optional return type: `function f(...) -> Type`
+          let returnType = if match_(state, [Arrow]) {
+            parseTypeExpr(state)
+          } else {
+            None
+          }
           skipNewlines(state)
 
           let body = parseBlock(state)
           let loc = {start: startLoc.start, end_: currentLoc(state).end_, file: state.file}
-          Some(FunctionDecl({name, params: params.contents, returnType: None, body, loc}))
+          Some(FunctionDecl({name, params: params.contents, returnType, body, loc}))
         }
       | _ => {
           addDiagnostic(state, E0001, "Expected function name", currentLoc(state))
@@ -869,29 +948,10 @@ let parseDeclaration = (state: parserState): option<decl> => {
             | Some({type_: Identifier(fname)}) => {
                 advance(state)->ignore
                 expect(state, Colon, "Expected ':' after field name")->ignore
-                // Simple type parsing
-                switch peek(state) {
-                | Some({type_: TInt}) => {
-                    advance(state)->ignore
-                    fields := Array.concat(fields.contents, [(fname, TyInt)])
-                  }
-                | Some({type_: TFloat}) => {
-                    advance(state)->ignore
-                    fields := Array.concat(fields.contents, [(fname, TyFloat)])
-                  }
-                | Some({type_: TString}) => {
-                    advance(state)->ignore
-                    fields := Array.concat(fields.contents, [(fname, TyString)])
-                  }
-                | Some({type_: TBool}) => {
-                    advance(state)->ignore
-                    fields := Array.concat(fields.contents, [(fname, TyBool)])
-                  }
-                | Some({type_: Identifier(tname)}) => {
-                    advance(state)->ignore
-                    fields := Array.concat(fields.contents, [(fname, TyIdent(tname))])
-                  }
-                | _ => ()
+                // Full type parsing (primitives, Array<T>, Echo<A, B>, EchoR<A, B>, idents)
+                switch parseTypeExpr(state) {
+                | Some(ty) => fields := Array.concat(fields.contents, [(fname, ty)])
+                | None => ()
                 }
               }
             | _ => ()
