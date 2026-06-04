@@ -1,5 +1,6 @@
-// Error-Lang Integration Tests
 // SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+// Error-Lang Integration Tests
 //
 // These tests verify that the Zig FFI correctly implements error-lang's
 // computational haptics and pedagogical features.

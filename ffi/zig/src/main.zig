@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 // Error-Lang FFI Implementation
 //
 // This module implements the C-compatible FFI for Error-Lang computational haptics.
 // Provides high-performance native operations for stability scoring, positional
 // semantics, and paradox detection.
 //
-// SPDX-License-Identifier: MPL-2.0
 
 const std = @import("std");
 
