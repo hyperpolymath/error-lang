@@ -76,3 +76,6 @@ examples:
 init:
     rm -rf .error-lang
     @echo "State cleared. Next run will be Run #1."
+
+secret-scan-trufflehog:
+    @command -v trufflehog >/dev/null && trufflehog filesystem . --only-verified || true

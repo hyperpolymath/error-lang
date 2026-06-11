@@ -1,12 +1,9 @@
 # SPDX-License-Identifier: MPL-2.0
 name: Mirror to GitLab and Bitbucket
-
 on:
   push:
     branches: [main]
-
 permissions: read-all
-
 jobs:
   mirror:
     name: Sync to Forges
@@ -15,13 +12,11 @@ jobs:
     if: vars.GITLAB_MIRROR_ENABLED == 'true' || vars.BITBUCKET_MIRROR_ENABLED == 'true'
     permissions:
       contents: read
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
         with:
           fetch-depth: 0
-
       - name: Mirror to GitLab
         if: vars.GITLAB_MIRROR_ENABLED == 'true' && secrets.GITLAB_SSH_KEY != ''
         run: |
@@ -31,7 +26,6 @@ jobs:
           ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
           git remote add gitlab git@gitlab.com:hyperpolymath/error-lang.git || true
           git push --mirror gitlab
-
       - name: Mirror to Bitbucket
         if: vars.BITBUCKET_MIRROR_ENABLED == 'true' && secrets.BITBUCKET_SSH_KEY != ''
         run: |
