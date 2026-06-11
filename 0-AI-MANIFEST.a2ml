@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MPL-2.0
 # 0-AI-MANIFEST.a2ml — error-lang
 # Universal AI Agent Gateway — Read This First
-# Generated: 2026-03-14
+# Last updated: 2026-06-02
 
 ## Identity
 
@@ -9,59 +9,129 @@ project: error-lang
 type: programming-language
 owner: hyperpolymath
 description: >
-  Error-first programming language with graduated error levels and ReScript playground compiler.
+  A dissembling / decompositional educational programming language. Programs,
+  syntax, semantics, and types can decay, decompose, and destabilise over time,
+  and the language EXPOSES that decomposition (consequence amplification +
+  stability scoring) rather than hiding it. Echo types give structured loss a
+  first-class shape. Error-first with graduated error levels.
 license: MPL-2.0
+
+## Core Narrative (read before reasoning about features)
+
+Error-Lang is not merely "a language with errors." It is decompositional:
+the distinctive claim is that decomposition is itself something the language
+exposes and reasons about. Echo types make STRUCTURED LOSS first-class:
+  - Echo<A, B>        retained witness + visible output (a fibre witness)
+  - EchoR<A, B>       residue after irreversible erasure (witness gone)
+  - echo_to_residue   explicit decomposition step; debits stability ([Stab-Erase])
+Governing invariant: DECOMPOSITION MUST BE VISIBLE — echo_to_residue is never a
+silent cast, EchoR is never an Echo with a missing field, and the stability
+debit is never hidden. See docs/Echo-Decomposition.adoc and spec/type-system.md §7.
 
 ## Critical Invariants
 
+- Decomposition must be visible: never make echo_to_residue a silent cast,
+  never let EchoR behave like Echo, never hide the erasure stability debit
 - SCM files ONLY in `.machine_readable/` (root copies are symlinks)
-- NEVER delete spec files: grammar, SPEC.core.scm
+- NEVER delete spec files: spec/grammar.ebnf, spec/SPEC.core.scm
 - NEVER use banned languages: TypeScript, Node.js, npm, Go, Python
 - All GitHub Actions must be SHA-pinned
-- All source files must have SPDX headers
+- All source files must have SPDX-License-Identifier: MPL-2.0 headers
 - Root symlinks MUST be maintained when moving files
+- NEVER use the AGPL license (use MPL-2.0)
+- DO NOT remove compiler/*.res files — they are a legacy reference frontend
+  pending AffineScript re-target. The governance CI failure is pre-existing.
+
+## Known Pre-existing CI Failure
+
+governance / Language / package anti-pattern policy FAILS on every PR and on
+main because compiler/src/*.res files exist. This is intentional/legacy — the
+compiler is a reference frontend in a non-standard early ReScript dialect. The
+runnable implementation is in cli/. Resolution: AffineScript re-target
+(contractiles/lust/Intentfile INTENT-001). Do NOT work around it by removing
+.res files or patching governance.yml.
 
 ## Canonical File Locations
 
-### Machine-Readable Metadata (.machine_readable/)
-- `.machine_readable/AGENTIC.scm`
-- `.machine_readable/ECOSYSTEM.scm`
-- `.machine_readable/META.scm`
-- `.machine_readable/NEUROSYM.scm`
-- `.machine_readable/PLAYBOOK.scm`
-- `.machine_readable/STATE.scm`
+### Human Orientation
+- `EXPLAINME.adoc`        — Comprehensive human/agent orientation (read this too)
+- `README.adoc`           — GitHub landing page overview
 
+### Machine-Readable Metadata (.machine_readable/6a2/)
+- `.machine_readable/6a2/STATE.a2ml`    — Current project state and session history
+- `.machine_readable/6a2/META.a2ml`     — Architecture decisions (ADR-0001: Echo types)
+- `.machine_readable/6a2/AGENTIC.a2ml`  — Agent permissions and constraints
+- `.machine_readable/6a2/ECOSYSTEM.a2ml` — Ecosystem position and related projects
+- `.machine_readable/6a2/NEUROSYM.a2ml` — Hypatia symbolic rules for Echo invariants
+- `.machine_readable/6a2/PLAYBOOK.a2ml` — Operational playbook
+
+### Operational Framework (contractiles/)
+- `contractiles/must/Mustfile`         — Required invariants and validation checks
+- `contractiles/dust/Dustfile`         — Recovery and rollback handlers
+- `contractiles/trust/Trustfile.hs`    — Trust model and verification steps
+- `contractiles/lust/Intentfile`       — Roadmap and intent (INTENT-001 through 005)
 
 ### Specification (spec/)
-- `spec/grammar.ebnf` — Canonical EBNF grammar (@taxonomy: spec/grammar)
+- `spec/grammar.ebnf`         — Canonical EBNF grammar (@taxonomy: spec/grammar)
+- `spec/type-system.md`       — Type system spec including §7 Echo Types
+- `spec/README.adoc`          — Specification index
 
-- `spec/README.adoc` — Specification index
+### Key Documentation (docs/)
+- `docs/Echo-Decomposition.adoc`   — Echo types authoritative narrative
+- `docs/Design-Philosophy.adoc`    — Why the language is designed this way
+- `docs/Error-Lang.adoc`           — Full language reference
+- `docs/Error-Categories.adoc`     — Nine error categories + stability debits
+- `docs/Curriculum.adoc`           — Lesson sequence (Lessons 1–11)
 
 ### Verification (verification/)
-- `verification/proofs/` — Formal proofs 
-- `verification/tests/` — Test suite ../compiler/test
-(symlink)
-- `verification/conformance/` — Conformance tests ../conformance
-(symlink)
-- `verification/benchmarks/` — Performance benchmarks ../bench
-(symlink)
-- `verification/fuzzing/` — Fuzz targets ../compiler/fuzz
-(symlink)
-- `verification/README.adoc` — Verification index
+- `verification/proofs/`      — Formal proofs
+- `verification/tests/`       — Test suite (symlink → ../compiler/test)
+- `verification/conformance/` — Conformance tests (symlink → ../conformance)
+- `verification/benchmarks/`  — Performance benchmarks (symlink → ../bench)
+- `verification/fuzzing/`     — Fuzz targets (symlink → ../compiler/fuzz)
+
+### Compiler (reference frontend — non-standard ReScript dialect)
+- `compiler/src/Types.res`        — Token + type AST (TyEcho, TyEchoResidue)
+- `compiler/src/Lexer.res`        — Tokenizer (Echo, EchoR keywords)
+- `compiler/src/Parser.res`       — AST builder (type expression parser)
+- `compiler/src/TypeChecker.res`  — Type inference + unification (Echo rules)
+- `compiler/src/Bytecode.res`     — VEcho/VResidue values + Echo opcodes
+- `compiler/src/VM.res`           — Stack VM (echoEraseCost = 15.0)
+- `compiler/src/Codegen.res`      — AST → bytecode
+
+### CLI (runnable implementation)
+- `cli/runtime.js`           — Main runtime (Deno)
+- `cli/analyze.js`           — Stability analysis
+- `cli/five-whys.js`         — Root cause tracing
+- `cli/layer-navigator.js`   — Five-layer view
+
+### Examples
+- `examples/01-hello-world.err`           — Baseline
+- `examples/11-echo-decomposition.err`    — Echo types (full demo with gutter zone)
 
 ## Taxonomy Index
 
-- `spec/grammar.ebnf` — @taxonomy: spec/grammar
-
-- `spec/README.adoc` — @taxonomy: spec/index
-- `verification/README.adoc` — @taxonomy: verification/index
-- `playground/compiler/src/lexer/Lexer.res` — @taxonomy: compiler/lexer
-- `playground/compiler/src/parser/Parser.res` — @taxonomy: compiler/parser
-- `editors/error-lang.tmLanguage.json` — @taxonomy: editors/textmate-grammar
+- `spec/grammar.ebnf`                    — @taxonomy: spec/grammar
+- `spec/type-system.md`                  — @taxonomy: spec/type-system
+- `spec/README.adoc`                     — @taxonomy: spec/index
+- `docs/Echo-Decomposition.adoc`         — @taxonomy: docs/echo-decomposition
+- `verification/README.adoc`             — @taxonomy: verification/index
+- `compiler/src/Lexer.res`               — @taxonomy: compiler/lexer
+- `compiler/src/Parser.res`              — @taxonomy: compiler/parser
+- `compiler/src/TypeChecker.res`         — @taxonomy: compiler/typechecker
+- `compiler/src/VM.res`                  — @taxonomy: compiler/vm
 
 ## Session Startup Sequence
 
 1. Read this manifest (0-AI-MANIFEST.a2ml)
-2. Read `.machine_readable/STATE.scm` for current progress
-3. Read `.machine_readable/META.scm` for architecture decisions
-4. Read `.machine_readable/ECOSYSTEM.scm` for ecosystem context
+2. Read `EXPLAINME.adoc` for comprehensive orientation
+3. Read `.machine_readable/6a2/STATE.a2ml` for current project state
+4. Read `.machine_readable/6a2/META.a2ml` for architecture decisions
+5. Read `.machine_readable/6a2/AGENTIC.a2ml` for agent constraints
+6. Read `.machine_readable/6a2/ECOSYSTEM.a2ml` for ecosystem context
+
+## Session Exit Sequence
+
+1. Update `.machine_readable/6a2/STATE.a2ml` with session outcomes
+2. Ensure all new files have SPDX-License-Identifier: MPL-2.0 headers
+3. Ensure Echo decomposition invariants are intact (run contractiles/must/Mustfile checks)

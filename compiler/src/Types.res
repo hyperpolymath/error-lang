@@ -47,6 +47,8 @@ type tokenType =
   | TString
   | TBool
   | TArray
+  | TEcho    // Echo<A, B>  — fiber / retained-loss type
+  | TEchoR   // EchoR<A, B> — residue (stricter, non-recoverable) layer
   // Literals
   | Integer(int)
   | Float(float)
@@ -135,6 +137,16 @@ and typeExpr =
   | TyString
   | TyBool
   | TyArray(typeExpr)
+  // Echo types — a constructive model of structured loss (see echo-types / EchoTypes.jl).
+  // `Echo<A, B>` is the fiber of a function A → B: a retained witness `x : A` paired with
+  // a proof that `f x ≡ y : B`. The optional arguments record the surface sugar:
+  //   Echo<A, B> => TyEcho(Some(A), Some(B))
+  //   Echo<A>    => TyEcho(Some(A), None)     (codomain inferred)
+  //   Echo       => TyEcho(None, None)        (opaque fallback)
+  | TyEcho(option<typeExpr>, option<typeExpr>)
+  // `EchoR<A, B>` is the residue of an Echo after `echo_to_residue`: the witness `x : A`
+  // has been erased (non-recoverable); only reachability of the output `y : B` is retained.
+  | TyEchoResidue(option<typeExpr>, option<typeExpr>)
   | TyIdent(string)
 
 and lambdaBody =

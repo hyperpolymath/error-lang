@@ -297,6 +297,40 @@ end
 * Error cascades
 * Panic mode recovery
 
+=== Lesson 11: Structured Loss (Echo)
+
+**Concept**: Decomposition made visible — loss can be structured, but it is never free or hidden
+
+**The Problem**:
+Most languages discard information silently. Error-Lang makes the *moment of loss*
+observable: an `Echo<A, B>` holds a witness and its output; `echo_to_residue`
+erases the witness into an `EchoR<A, B>`, debiting the Stability Score.
+
+**Example**:
+[source,err]
+----
+main
+    let e = echo(42, "answer")          # Echo<Int, String>
+    println(echo_input(e))              # 42 — witness still here
+    println(echo_output(e))             # "answer"
+
+    let r = echo_to_residue(e)          # erasure — stability drops here
+    println(echo_output(r))             # "answer" survives
+    println(residue_strictly_loses(r))  # true — loss is observable
+
+    gutter
+        println(echo_input(r))          # ERROR: the witness is gone
+    end
+end
+----
+
+**Learning Objectives**:
+
+* Structured loss vs. silent discard
+* Irreversibility: `EchoR` never coerces back to `Echo`
+* Consequence amplification: the erasure stability debit is visible, charged once
+* The invariant *decomposition must be visible*
+
 == Assessment Ideas
 
 === Quiz Format

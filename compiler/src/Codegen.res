@@ -130,9 +130,35 @@ let rec compileExpr = (c: compiler, expr: expr): unit => {
       | BNot => ()  // Not implemented
       }
     }
-  | Call(_func, _args, loc) => {
-      // Function calls not fully implemented yet
-      emit(c, OpPush(VNil), loc)
+  | Call(callee, args, loc) => {
+      // Echo builtins compile to dedicated opcodes (the VM has no general call yet).
+      // Arguments are pushed left-to-right; for `echo(x, y)` the output `y` is on top,
+      // which is exactly what OpEcho pops first.
+      switch callee {
+      | Ident("echo", _) => {
+          args->Array.forEach(a => compileExpr(c, a))
+          emit(c, OpEcho, loc)
+        }
+      | Ident("echo_to_residue", _) => {
+          args->Array.forEach(a => compileExpr(c, a))
+          emit(c, OpEchoToResidue, loc)
+        }
+      | Ident("residue_strictly_loses", _) => {
+          args->Array.forEach(a => compileExpr(c, a))
+          emit(c, OpResidueStrictlyLoses, loc)
+        }
+      | Ident("echo_input", _) => {
+          args->Array.forEach(a => compileExpr(c, a))
+          emit(c, OpEchoInput, loc)
+        }
+      | Ident("echo_output", _) => {
+          args->Array.forEach(a => compileExpr(c, a))
+          emit(c, OpEchoOutput, loc)
+        }
+      | _ =>
+        // Other function calls not fully implemented yet
+        emit(c, OpPush(VNil), loc)
+      }
     }
   | Index(array, index, loc) => {
       compileExpr(c, array)

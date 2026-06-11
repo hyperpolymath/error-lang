@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: MPL-2.0
+// Owner: Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+// Copyright (c) 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
+= Error-Lang Contractiles
+:toc:
+:sectnums:
+
+This directory contains the *operational contract* for the Error-Lang project.
+Contractiles are the invariant, recovery, trust, and intent framework that
+governs how the project evolves, how failures are recovered from, and where it
+is going.
+
+== Contents
+
+[cols="1,1,2"]
+|===
+| File | Status | Purpose
+
+| `must/Mustfile`
+| ✅ Active
+| Required invariants — what must ALWAYS be true. Run these checks to verify
+  project health.
+
+| `dust/Dustfile`
+| ✅ Active
+| Recovery semantics — what to do when something breaks. Rollback handlers
+  and undo procedures.
+
+| `trust/Trustfile.hs`
+| ✅ Active
+| Trust and verification — cryptographic and semantic verification steps.
+
+| `lust/Intentfile`
+| ✅ Active
+| Intent and roadmap — where this project is going and why.
+|===
+
+== How to Use
+
+=== Verifying invariants (must/)
+
+[source,bash]
+----
+# The Mustfile defines checks that must pass before any release.
+# Run individual checks by extracting the `run:` commands.
+# A `just` recipe (`just validate-rsr`) runs the composite check.
+just validate-rsr
+----
+
+=== Recovery from failures (dust/)
+
+Consult `dust/Dustfile` when something breaks. Each handler names the
+failure event, the undo action, and the verification step.
+
+The most critical handlers are:
+
+* `echo-invariant-violation` — the decomposition-must-be-visible invariant was broken
+* `stability-debit-missing` — `echo_to_residue` ran but stability was not debited
+* `residue-unified-with-echo` — the type checker let `EchoR` unify into `Echo`
+
+=== Critical invariants
+
+The non-negotiable invariants for this project:
+
+1. **SPDX headers** — every source file has a valid `SPDX-License-Identifier` header
+2. **Echo decomposition is visible** — `echo_to_residue` always debits stability,
+   `EchoR` never unifies with `Echo`, `echo_input` is always rejected on a residue
+3. **Grammar is canonical** — `spec/grammar.ebnf` is the single source of truth
+4. **No banned languages** — TypeScript, Python, Go, Node.js are banned at runtime
+   boundaries (the existing `compiler/*.res` is legacy, pending AffineScript re-target)
+5. **Spec files intact** — `spec/grammar.ebnf` and `spec/SPEC.core.scm` are never deleted
+
+See link:../docs/Echo-Decomposition.adoc[docs/Echo-Decomposition.adoc] and
+link:../spec/type-system.md[spec/type-system.md] §7 for the Echo decomposition contract.
+See link:../0-AI-MANIFEST.a2ml[0-AI-MANIFEST.a2ml] for the full agent-readable invariant list.

@@ -1,0 +1,113 @@
+# SPDX-License-Identifier: MPL-2.0
+# Copyright (c) 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
+# Intentfile — Error-Lang roadmap and intent
+#
+# "Lust" in the contractiles framework means: what does this project *want*
+# to become? These are not bug fixes — they are the evolutionary direction.
+# Intent is aspirational; must/ is mandatory.
+
+version: 1
+
+metadata:
+  name: error-lang-intent
+  last-updated: "2026-06-02"
+  author: "hyperpolymath"
+
+# The governing principle that all intent items must serve:
+principle: >
+  Decomposition must be visible. Every path this project takes should make the
+  ways programs, types, and semantics can decay more observable, more
+  understandable, and more controllable — not less.
+
+intent:
+
+  - id: INTENT-001
+    title: "AffineScript re-target"
+    horizon: "short-term"
+    priority: "critical"
+    description: >
+      Migrate compiler/src/*.res from the non-standard early ReScript dialect
+      to AffineScript or standard ReScript. This resolves the estate-wide
+      `governance / Language / package anti-pattern policy` CI failure (ReScript
+      ban) that currently fails on every PR and on main identically.
+    why: >
+      The reference frontend currently uses return/break statements, non-string-
+      keyed Dict, and element-returning arr[i] — idioms from a pre-standard
+      dialect. Until re-targeted, CI will permanently report one failing check.
+      The runnable implementation (cli/) is unaffected.
+    acceptance: >
+      `governance / Language / package anti-pattern policy` passes on a PR
+      that migrates compiler/src/. The Echo type system additions are preserved
+      verbatim (same semantics, different syntax).
+    adr: "ADR-pending"
+
+  - id: INTENT-002
+    title: "First-class functions in the VM"
+    horizon: "medium-term"
+    priority: "high"
+    description: >
+      The current VM has no first-class functions. Echo is therefore a
+      single-witness pairing (VEcho{input, output}) rather than a full fibre
+      witness (fiber(f, domain, y) with proof f x ≡ y). First-class functions
+      unlock the whole-fibre model.
+    why: >
+      The Agda mechanization in echo-types proves Echo<A,B> := Σ(x:A), (f x ≡ y).
+      The current runtime captures the pairing but not the function. Adding
+      first-class functions lets Error-Lang host the full fibre structure and
+      makes the educational story complete.
+    acceptance: >
+      `let f = fn(x) { x + 1 } in echo(f, 42, f(42))` type-checks and runs,
+      producing a full fibre witness that can be decomposed with echo_to_residue.
+
+  - id: INTENT-003
+    title: "Formal Echo soundness proof in Agda"
+    horizon: "long-term"
+    priority: "medium"
+    description: >
+      Produce a formal bridge between Error-Lang's runtime Echo model and the
+      Agda mechanization in hyperpolymath/echo-types. This would prove that
+      the VEcho/VResidue runtime values are a sound implementation of the
+      fibre type Echo<A,B> := Σ(x:A), (f x ≡ y).
+    why: >
+      Error-Lang is a *model*, not a proof. The Agda repo is the source of
+      mechanized truth. A formal bridge ensures the model stays faithful and
+      gives students a path from the runnable language to the formal proof.
+    acceptance: >
+      An Agda module in verification/proofs/ that defines a semantics function
+      from Error-Lang VM states to Agda Echo types and proves that the semantics
+      function preserves the Echo/EchoR distinction.
+
+  - id: INTENT-004
+    title: "Landauer benchmark for erasure cost"
+    horizon: "long-term"
+    priority: "low"
+    description: >
+      Measure the runtime cost of echo_to_residue (memory, entropy, time) and
+      compare it to the theoretical Landauer bound for one bit of information
+      erasure at room temperature.
+    why: >
+      The echoEraseCost = 15.0 stability debit is pedagogically motivated, not
+      physically derived. Benchmarking against the Landauer bound would connect
+      the educational model to real thermodynamic cost of information erasure,
+      making the "loss is not free" lesson physically grounded.
+    acceptance: >
+      A benchmark in verification/benchmarks/ that measures echo_to_residue
+      wall-clock and memory, produces a cost-per-bit estimate, and compares it
+      to kT ln 2 at 300K (~3×10⁻²¹ J per bit).
+
+  - id: INTENT-005
+    title: "LSP server with Echo decomposition tracking"
+    horizon: "medium-term"
+    priority: "medium"
+    description: >
+      Extend the LSP server to report Echo/EchoR type information in hover
+      tooltips, and to highlight the stability debit in the editor gutter at
+      the echo_to_residue call site.
+    why: >
+      Computational haptics is the core educational mechanism. Showing the
+      stability debit *at the exact line* where echo_to_residue is called makes
+      the "decomposition must be visible" invariant physically present in the
+      editor, not just in the terminal.
+    acceptance: >
+      Hovering over `echo_to_residue(e)` in VS Code shows "EchoR<A,B> — witness
+      erased; stability −15". The gutter shows the debit icon next to that line.

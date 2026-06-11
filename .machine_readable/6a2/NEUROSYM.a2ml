@@ -14,6 +14,16 @@ report-format = "logtalk"
 [symbolic-rules]
 # Custom symbolic rules for this project
 # - { name = "no-unsafe-ffi", pattern = "believe_me|unsafeCoerce", severity = "critical" }
+#
+# Echo decomposition must remain VISIBLE (see docs/Echo-Decomposition.adoc):
+#   - echo_to_residue must debit stability — it is never a silent cast
+#   - EchoR<A,B> must not unify with / be coerced to Echo<A,B>
+#   - echo_input must be rejected on a residue (the witness is gone)
+rules = [
+  { name = "echo-erasure-must-cost", concern = "echo_to_residue must apply the [Stab-Erase] stability debit", severity = "high" },
+  { name = "echo-residue-no-coercion", concern = "no implicit Echo->EchoR or Echo->B coercion; EchoR does not unify back into Echo", severity = "high" },
+  { name = "echo-input-not-on-residue", concern = "echo_input is illegal on EchoR (non-recoverable residue)", severity = "high" },
+]
 
 [neural-config]
 # Neural pattern detection settings

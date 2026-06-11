@@ -8,13 +8,17 @@ last-updated = "2026-04-11"
 
 [project]
 name = "Error Lang"
-purpose = ""
-role = ""
+purpose = "A dissembling/decompositional educational language that makes the decay and structured loss of programs, semantics, and types VISIBLE."
+role = "Operational, stability-aware embedding of the Echo (structured-loss) lineage; the decomposition-visible member of the Echo family."
 
 [position-in-ecosystem]
-category = ""
+category = "educational-programming-language"
 
 [related-projects]
 projects = [
-  # No related projects recorded
+  # The Echo (structured-loss) lineage that Error-Lang's Echo<A,B>/EchoR<A,B> embed.
+  # Error-Lang stays Error-Lang-specific (visible decomposition); it does not
+  # re-export these repos' exposition.
+  { name = "echo-types", owner = "hyperpolymath", role = "source of mechanized truth (Agda): Echo f y := Σ(x:A), (f x ≡ y)" },
+  { name = "EchoTypes.jl", owner = "hyperpolymath", role = "finite-domain executable model (Julia) — a model, not a proof" },
 ]

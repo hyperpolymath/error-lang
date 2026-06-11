@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: MPL-2.0
+# Copyright (c) 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
+# Mustfile — Error-Lang required invariants
+# See: https://github.com/hyperpolymath/mustfile
+
+version: 1
+
+metadata:
+  name: error-lang-state-contract
+  spec: v0.2.0
+  description: >
+    Invariant checks for the Error-Lang project. These must pass before any
+    release. The most critical invariants concern Echo decomposition visibility
+    (decomposition must be visible — never silent, never free).
+
+parameters:
+  echo_erase_cost: "15.0"
+  spec_version: "v0.2.0"
+
+checks:
+  - name: spdx-headers-present
+    description: >
+      All source files (.res, .js, .ts, .zig, .adoc, .md, .a2ml, .scm, .ncl)
+      must carry a valid SPDX-License-Identifier header.
+    run: >
+      bash -uc 'git ls-files | grep -E "\.(res|js|ts|zig|adoc|a2ml|scm|ncl)$" |
+        xargs grep -rL "SPDX-License-Identifier" | grep -v node_modules | grep -v ".git"
+        | { read out; [ -z "$out" ] || (echo "Missing SPDX: $out" && exit 1); }'
+
+  - name: grammar-canonical
+    description: >
+      The canonical EBNF grammar spec/grammar.ebnf must exist and must not be
+      empty. It is the single source of truth for Error-Lang syntax.
+    run: "bash -uc 'test -s spec/grammar.ebnf'"
+
+  - name: spec-files-intact
+    description: >
+      spec/grammar.ebnf must exist. SPEC.core.scm will be checked when available.
+    run: "bash -uc 'test -f spec/grammar.ebnf'"
+
+  - name: echo-type-system-spec-present
+    description: >
+      spec/type-system.md must contain Echo type definitions (§7). This verifies
+      that the Echo decomposition contract has been documented.
+    run: >
+      bash -uc 'grep -q "Echo" spec/type-system.md && grep -q "EchoR" spec/type-system.md
+        && grep -q "Stab-Erase" spec/type-system.md'
+
+  - name: echo-decomposition-doc-present
+    description: >
+      docs/Echo-Decomposition.adoc must exist and contain the governing invariant.
+    run: >
+      bash -uc 'test -f docs/Echo-Decomposition.adoc &&
+        grep -q "decomposition must be visible" docs/Echo-Decomposition.adoc'
+
+  - name: echo-erase-cost-defined
+    description: >
+      The VM must define echoEraseCost matching the contractual value (15.0).
+      This is the [Stab-Erase] stability debit for echo_to_residue.
+    run: >
+      bash -uc 'grep -q "echoEraseCost = 15.0" compiler/src/VM.res'
+
+  - name: echo-residue-not-unified-spec
+    description: >
+      The type-system spec must document that TyEcho and TyEchoR never unify.
+    run: >
+      bash -uc 'grep -q "never unif" spec/type-system.md ||
+        grep -q "does not unify" spec/type-system.md'
+
+  - name: no-banned-languages-at-runtime
+    description: >
+      The cli/ runtime must not import TypeScript, Python, Go, or Node.js
+      modules at the process boundary. (The compiler/*.res reference frontend
+      is exempted — it is legacy pending AffineScript re-target.)
+    run: >
+      bash -uc '! grep -rn "require(\"typescript\")\|import.*from.*\"typescript\""
+        cli/ 2>/dev/null | grep -v ".git"'
+
+  - name: machine-readable-in-subdir
+    description: >
+      Machine-readable state files must live under .machine_readable/, never
+      directly at the repo root (root copies must be symlinks).
+    run: >
+      bash -uc 'for f in STATE.a2ml META.a2ml AGENTIC.a2ml ECOSYSTEM.a2ml
+        NEUROSYM.a2ml PLAYBOOK.a2ml; do
+        [ ! -e "$f" ] || [ -L "$f" ] || (echo "Root SCM file not a symlink: $f" && exit 1)
+      done'
+
+  - name: ai-manifest-present
+    description: >
+      0-AI-MANIFEST.a2ml must exist at the repo root. It is the AI agent gateway.
+    run: "bash -uc 'test -f 0-AI-MANIFEST.a2ml'"
+
+  - name: explainme-present
+    description: >
+      EXPLAINME.adoc must exist at the repo root. It is the human/agent
+      orientation document.
+    run: "bash -uc 'test -f EXPLAINME.adoc'"

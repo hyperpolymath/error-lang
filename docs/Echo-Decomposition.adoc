@@ -1,0 +1,152 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+= Echo Types: Decomposition Made Visible
+:toc:
+:sectnums:
+:source-highlighter: rouge
+
+== Why Echo belongs in Error-Lang
+
+Error-Lang is not merely "a language with errors." It is a *dissembling*,
+*decompositional* educational language. Its distinctive claim is that programs —
+their syntax, their semantics, and their types — can **decay, decompose, and
+destabilise over time**, sometimes gracefully and sometimes catastrophically,
+and that this decomposition is itself something the language can *expose* and
+*reason about*.
+
+Most languages treat loss as something to be hidden: a discarded value, an
+erased witness, a collapsed abstraction — gone silently. Error-Lang takes the
+opposite stance, consistent with its core principle of **consequence
+amplification** (see `Design-Philosophy.adoc`): when structure is lost, the loss
+must be *seen*.
+
+**Echo types are how Error-Lang gives structured loss a first-class shape** — in
+the runtime *and* in the type checker — adapted from the constructive Agda
+library https://github.com/hyperpolymath/echo-types[echo-types] and its
+executable companion https://github.com/hyperpolymath/EchoTypes.jl[EchoTypes.jl].
+Where those upstream repos model echoes conservatively (ghost/static, proof
+relevant), Error-Lang makes the *decomposition step itself* observable:
+
+[cols="1,3",options="header"]
+|===
+| Form | Meaning
+
+| `Echo<A, B>`
+| A **retained witness** `x : A` together with the **visible output** `y : B`
+  it reached — one element of the fibre of a function `A → B`.
+
+| `EchoR<A, B>`
+| The **residue** after an *irreversible erasure*: the `A`-witness is gone
+  (non-recoverable); only reachability of the output `B` survives.
+
+| `echo_to_residue`
+| The **explicit decomposition step** — `Echo<A,B> → EchoR<A,B>` — that destroys
+  the witness and incurs a stability cost. It is never a silent cast.
+|===
+
+== The educational invariant: decomposition must be visible
+
+The single invariant that governs every design and test decision for Echo:
+
+[IMPORTANT]
+====
+**Decomposition must be visible.**
+
+A learner must be able to *see the exact moment* structured loss becomes
+non-recoverable residue.
+
+* `echo_to_residue` must **not** become a silent cast.
+* `EchoR<A,B>` must **not** behave like an `Echo<A,B>` with a missing field.
+* The stability debit must **not** be hidden inside incidental runtime behaviour.
+====
+
+This is why Echo is valuable *here* specifically: it turns an abstract
+type-theoretic idea (the fibre / structured loss) into a concrete, observable
+decomposition event that a student can trigger, watch, and reason about.
+
+== The three decomposition planes
+
+The proof/test obligation for Echo is **not** the shallow "Echo typechecks." It
+is: _the code's decomposition behaviour is represented syntactically,
+semantically, and in type checking._ Echo is therefore specified and tested
+across three planes.
+
+=== Plane 1 — Syntactic decomposition
+
+How the loss is *written and rendered*.
+
+* Parsing and pretty-printing **preserve** `Echo` and `EchoR` forms (round-trip).
+* Malformed Echo syntax **fails clearly**, not silently.
+* Sugar lowers **predictably**:
++
+[cols="1,2",options="header"]
+|===
+| Surface | Lowering
+| `Echo<A, B>` | `TyEcho(Some(A), Some(B))`
+| `Echo<A>`    | `TyEcho(Some(A), None)` — codomain inferred (treated as `Any`)
+| `Echo`       | `TyEcho(None, None)` — opaque fallback / unresolved
+|===
+* Nested forms — e.g. `Echo<Echo<Int, String>>` — do **not** confuse the
+  greedy `>>` lexing of type annotations (the parser splits a fused `>>` token).
+
+=== Plane 2 — Semantic / runtime decomposition
+
+How the loss *behaves when it runs* (single-witness core; whole-fibre awaits
+first-class functions).
+
+* `echo(x, y)` produces `VEcho{input: x, output: y}`.
+* `echo_input` works on `VEcho`, and **fails on a residue**.
+* `echo_output` works on **both** `VEcho` and `VResidue` (the output survives).
+* `echo_to_residue(VEcho{x, y})` produces `VResidue{output: y}`.
+* After residue conversion the input witness is **actually unavailable** — not
+  merely hidden.
+* `residue_strictly_loses` reports the non-recoverability property.
+* Stability is debited **exactly once**, by `echo_to_residue` — and **not** by
+  mere projection (`echo_input` / `echo_output` never touch stability).
+
+=== Plane 3 — Type-checking decomposition
+
+How the loss is *enforced in the types*.
+
+* `Echo<A,B>` unifies **only** structurally with `Echo<A,B>`.
+* `Echo<A,B>` does **not** unify with `EchoR<A,B>`.
+* `EchoR<A,B>` does **not** unify back into `Echo<A,B>`.
+* `echo_input  : Echo<A,B> -> A` — and is **illegal** on `EchoR<A,B>`.
+* `echo_output : Echo<A,B> | EchoR<A,B> -> B`.
+* `echo_to_residue : Echo<A,B> -> EchoR<A,B>`.
+* There is **no implicit coercion** `Echo -> EchoR` or `Echo -> B`.
+
+== The contract, in one place
+
+[source]
+----
+echo(x, y)                : (A, B)            -> Echo<A, B>
+echo_to_residue(e)        : Echo<A, B>        -> EchoR<A, B>   (+ stability debit)
+residue_strictly_loses(r) : EchoR<A, B>       -> Bool
+echo_input(e)             : Echo<A, B>        -> A             (illegal on residue)
+echo_output(e)            : Echo<A,B>|EchoR<A,B> -> B
+----
+
+Canonical names mirror EchoTypes.jl so the concept maps 1:1 across the three
+codebases; shorter aliases (`residue`, `residue_loses`) may be added later but
+the canonical names preserve the conceptual mapping.
+
+== Relationship to the wider Echo lineage
+
+* https://github.com/hyperpolymath/echo-types[echo-types] (Agda) — the **source
+  of mechanized truth**: `Echo f y := Σ (x : A), (f x ≡ y)`.
+* https://github.com/hyperpolymath/EchoTypes.jl[EchoTypes.jl] (Julia) — the
+  **finite-domain executable model** (a model, not a proof).
+* **Error-Lang** — the **operational, stability-aware, decomposition-visible**
+  embedding: not a proof assistant, so `f x ≡ y` is carried as a runtime pairing
+  rather than a HoTT path; the value of Echo here is the *visible decomposition
+  story*, not the importing of cross-estate vocabulary.
+
+== See also
+
+* `spec/type-system.md` §7 — formal typing rules, unification, and the
+  `[Stab-Erase]` stability rule.
+* `docs/Design-Philosophy.adoc` — consequence amplification and the stability
+  score that the erasure debit feeds into.
+* `compiler/test/TypeCheckerTest.res`, `ParserTest.res`, `EchoRuntimeTest.res` —
+  the proof/test pass across the three planes above.

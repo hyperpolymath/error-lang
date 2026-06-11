@@ -8,6 +8,13 @@ open Bytecode
 // Runtime error
 exception RuntimeError(string)
 
+// Stability debited when an Echo is erased to its residue. Echo-Lang's conceit
+// is that loss can be *structured* but is never free: erasing the witness is a
+// thermodynamic act (a Landauer-style cost; cf. echo-types `fiber_erasure_bound`,
+// k·T·⌊log₂ n⌋). Modelled here as a fixed symbolic debit until fibre cardinality
+// is computable at runtime.
+let echoEraseCost = 15.0
+
 // VM state
 type vm = {
   // Execution state
@@ -340,6 +347,51 @@ let executeInstruction = (vm: vm): bool => {
       // Activate a paradox (set bit in bitmask)
       vm.activeParadoxes = vm.activeParadoxes + 1
       vm.stabilityScore = vm.stabilityScore -. 5.0
+    }
+
+  // Echo types (structured loss)
+  | OpEcho => {
+      let output = pop(vm)
+      let input = pop(vm)
+      push(vm, VEcho({input, output}))
+    }
+  | OpEchoToResidue => {
+      let e = pop(vm)
+      switch e {
+      | VEcho({output}) => {
+          // Erasure is not free: destroying the witness costs stability.
+          vm.stabilityScore = vm.stabilityScore -. echoEraseCost
+          vm.traceHistory->Array.push(("echo_to_residue: witness erased", e))->ignore
+          push(vm, VResidue({output: output}))
+        }
+      | VResidue(_) => push(vm, e)  // already a residue — idempotent, no further loss
+      | _ => raise(RuntimeError("echo_to_residue expects an Echo value"))
+      }
+    }
+  | OpResidueStrictlyLoses => {
+      let e = pop(vm)
+      switch e {
+      | VResidue(_) => push(vm, VBool(true))
+      | VEcho(_) => push(vm, VBool(false))
+      | _ => raise(RuntimeError("residue_strictly_loses expects an Echo or residue value"))
+      }
+    }
+  | OpEchoInput => {
+      let e = pop(vm)
+      switch e {
+      | VEcho({input}) => push(vm, input)
+      | VResidue(_) =>
+        raise(RuntimeError("echo_input: the witness was erased — a residue is non-recoverable"))
+      | _ => raise(RuntimeError("echo_input expects an Echo value"))
+      }
+    }
+  | OpEchoOutput => {
+      let e = pop(vm)
+      switch e {
+      | VEcho({output}) => push(vm, output)
+      | VResidue({output}) => push(vm, output)
+      | _ => raise(RuntimeError("echo_output expects an Echo or residue value"))
+      }
     }
 
   // Debug
