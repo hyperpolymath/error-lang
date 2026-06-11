@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 // runtime.js - Error-Lang runtime with stability tracking
 
 import { StabilityTracker, isPrime } from './stability-tracker.js';

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 # justfile - Error-Lang build commands
 
 set shell := ["bash", "-uc"]
@@ -76,3 +77,6 @@ examples:
 init:
     rm -rf .error-lang
     @echo "State cleared. Next run will be Run #1."
+
+secret-scan-trufflehog:
+    @command -v trufflehog >/dev/null && trufflehog filesystem . --only-verified || true

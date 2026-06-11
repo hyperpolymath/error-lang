@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 use clap::{Parser, Subcommand};
 use error_pkg::{install, add_package, remove_package, search};
 use anyhow::Result;

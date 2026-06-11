@@ -1,5 +1,6 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write
 // SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+#!/usr/bin/env -S deno run --allow-read --allow-write
 // Error-Lang CLI - Main entry point
 
 import { parseArgs } from "jsr:@std/cli@1/parse-args";
