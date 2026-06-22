@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 //! error-lang-lsp — Language Server Protocol server for Error-Lang.
 //!
 //! Error-Lang is an educational programming language where errors are features,

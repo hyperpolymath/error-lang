@@ -1,5 +1,6 @@
-#!/usr/bin/env -S deno run
 // SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+#!/usr/bin/env -S deno run
 // analyze.js - Five Whys analyzer CLI
 
 import { interactiveFiveWhys } from './five-whys.js';
