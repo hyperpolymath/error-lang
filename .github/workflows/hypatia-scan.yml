@@ -1,43 +1,18 @@
-# SPDX-License-Identifier: MPL-2.0
-# Hypatia Neurosymbolic CI/CD Security Scan
+# SPDX-License-Identifier: PMPL-1.0-or-later
 name: Hypatia Security Scan
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [main, master, develop]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
   schedule:
-    - cron: '0 0 * * 0'  # Weekly on Sunday
+    - cron: '0 0 * * 0'
   workflow_dispatch:
-# Estate guardrail: cancel superseded runs so re-pushes don't pile up
-# queued runs across the estate. Safe here because this workflow only
-# performs read-only checks/lint/test/scan with no publish or mutation.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
-  # security-events: write serves two purposes (write implies read):
-  #   1. read — lets the built-in GITHUB_TOKEN query this repo's own
-  #      Dependabot alerts via the Hypatia DependabotAlerts rule
-  #      (DA001-DA004). Without read, `scan_from_path` gets HTTP 403
-  #      and the rule silently returns no findings.
-  #      See 007-lang/audits/audit-dependabot-automation-gap-2026-04-17.md.
-  #   2. write — lets the "Upload SARIF to code scanning" step publish
-  #      Hypatia findings to the Security → Code scanning page so they
-  #      are triaged/deduplicated like CodeQL alerts instead of living
-  #      only in a build artifact nobody is required to look at.
-  #      See hyperpolymath/burble#35 (SARIF integration).
-  # This is a single-job workflow, so job-level scoping would not
-  # narrow the grant further; it stays workflow-level and documented.
-  security-events: write
-  # pull-requests: write lets the advisory "Comment on PR with findings"
-  # step post its summary. Without it the built-in GITHUB_TOKEN gets
-  # "Resource not accessible by integration" and (absent continue-on-error)
-  # hard-fails the scan — exactly what the gate-decoupling design forbids.
-  pull-requests: write
+  security-events: read
 
 jobs:
   scan:

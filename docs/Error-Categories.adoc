@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 = Error-Lang Error Categories
 :toc:
 :sectnums:
@@ -256,7 +257,12 @@ The `gutter` (ошибка) block is where errors are injected:
 | Arithmetic | -10 | Numeric edge cases
 | Interface | -15 | Design concepts
 | Security | -20 | Critical importance
+| Echo erasure | -15 | Structured loss is not free: `echo_to_residue` debits stability ([Stab-Erase]), charged once and never on projection
 |===
+
+NOTE: The Echo-erasure debit is not an *error* category — it is a deliberate,
+visible decomposition cost. It appears here because it feeds the same Stability
+Score. See `docs/Echo-Decomposition.adoc` and `spec/type-system.md` §7.
 
 == Implementation Notes
 

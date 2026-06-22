@@ -1,5 +1,6 @@
-#!/usr/bin/env -S deno run --allow-read --allow-env --allow-net
 // SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+#!/usr/bin/env -S deno run --allow-read --allow-env --allow-net
 // Error-Lang Language Server Protocol (LSP) Implementation
 //
 // Provides IDE integration with computational haptics visualization

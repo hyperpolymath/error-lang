@@ -1170,6 +1170,22 @@ let testEchoAnnotations = () => {
     }
   | _ => assertTrue("single-arg echo annotated let parsed", false)
   }
+
+  // Nested form: the closing `>>` must be split, not read as a shift token.
+  let prog5 = parseSource("let e: Echo<Echo<Int, String>> = 1")
+  switch prog5.declarations[0] {
+  | Some(StmtDecl(LetStmt({type_}))) =>
+    switch type_ {
+    | Some(TyEcho(Some(TyEcho(Some(TyInt), Some(TyString))), None)) =>
+      assertTrue("nested Echo<Echo<Int, String>> parses (>> split)", true)
+    | _ => assertTrue("nested Echo<Echo<Int, String>> parses (>> split)", false)
+    }
+  | _ => assertTrue("nested echo annotated let parsed", false)
+  }
+
+  // Malformed Echo annotation must fail clearly (a diagnostic is raised).
+  let (_, diags) = parseWithDiagnostics("let e: Echo<Int = 1")
+  assertTrue("unclosed Echo type argument raises a diagnostic", Array.length(diags) > 0)
 }
 
 // ============================================

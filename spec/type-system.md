@@ -1,3 +1,7 @@
+<!--
+SPDX-License-Identifier: MPL-2.0
+Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+-->
 # SPDX-License-Identifier: MPL-2.0
 # Copyright (c) 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
 
@@ -272,7 +276,33 @@ Named to mirror EchoTypes.jl, so concepts map 1:1 across the three codebases:
 `echo_input` on an `EchoR` is a **type error** (and a runtime error): the witness
 is gone. This is the type system enforcing that loss, once structured, is real.
 
-### 7.5 Fidelity note
+### 7.5 Decomposition obligations (decomposition must be visible)
+
+Error-Lang is a *decompositional* language: Echo's correctness is not "Echo
+typechecks" but "the code's decomposition behaviour is represented syntactically,
+semantically, and in type checking." The governing invariant is:
+
+> **Decomposition must be visible.** `echo_to_residue` is never a silent cast;
+> `EchoR` never behaves as an `Echo` with a missing field; the stability debit is
+> never hidden in incidental runtime behaviour.
+
+Echo is therefore specified and tested across three planes:
+
+1. **Syntactic** — parse/pretty-print round-trip for `Echo`/`EchoR`; malformed
+   Echo fails clearly; sugar lowers predictably (§7.1); nested forms
+   (`Echo<Echo<Int,String>>`) survive the greedy `>>` lexing.
+2. **Semantic / runtime** — `echo` builds `VEcho{input,output}`; `echo_input`
+   works on `VEcho` and fails on `VResidue`; `echo_output` works on both;
+   `echo_to_residue` yields `VResidue` and the witness becomes genuinely
+   unavailable; `residue_strictly_loses` reports non-recoverability; stability is
+   debited **exactly once** by `echo_to_residue` and **never** by projection.
+3. **Type-checking** — the unification and builtin rules of §7.3–§7.4, including
+   `EchoR` not unifying back into `Echo` and no implicit `Echo → EchoR` or
+   `Echo → B` coercion.
+
+See `docs/Echo-Decomposition.adoc` for the narrative form of these obligations.
+
+### 7.6 Fidelity note
 
 Error-Lang is a runnable scripting language, not a proof assistant: the equality
 proof `f x ≡ y` is carried as a runtime-checkable pairing, not a HoTT path. The

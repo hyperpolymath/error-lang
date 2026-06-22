@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 = Error-Lang Language Specification
 :toc:
 :sectnums:
@@ -42,6 +43,22 @@ error reduces the score. At S=0, execution still works but output becomes
 * Semantics remain deterministic
 
 This creates the "it's working, but it's falling apart" aesthetic.
+
+=== Structured Loss Is Visible (Echo)
+
+Where Jenga Semantics decay the *whole program*, Echo types decay a *single
+value* — deliberately, observably, and irreversibly. Error-Lang is a
+decompositional language: when structure is lost, the loss must be **seen**.
+
+* `Echo<A, B>` — a retained witness `x : A` plus the visible output `y : B` it reached.
+* `EchoR<A, B>` — the non-recoverable residue after erasure (the witness is gone).
+* `echo_to_residue(e)` — the explicit decomposition step, `Echo<A,B> → EchoR<A,B>`,
+  which **debits the Stability Score**.
+
+The governing rule is **decomposition must be visible**: `echo_to_residue` is
+never a silent cast, `EchoR` is never an `Echo` with a missing field, and the
+stability debit is never hidden. See `docs/Echo-Decomposition.adoc` and
+`spec/type-system.md` §7.
 
 === Always Recoverable
 
@@ -88,6 +105,8 @@ end
 | `gutter` | Error injection zone (safe to break)
 | `if` / `else` | Conditionals (Stage 2+)
 | `function` | Function definition (Stage 2+)
+| `Echo` | Fibre type: retained witness + visible output (`Echo<A, B>`)
+| `EchoR` | Residue type: non-recoverable remains after erasure (`EchoR<A, B>`)
 |===
 
 ==== Literals
@@ -124,6 +143,21 @@ end
 let x = 42
 let message = "Hello"
 let result = x + 10
+let e: Echo<Int, String> = echo(42, "answer")   # type annotation: a fibre witness
+----
+
+==== Echo: Structured Loss
+
+[source,err]
+----
+let e = echo(42, "answer")        # Echo<Int, String>: witness 42 reached "answer"
+let i = echo_input(e)             # 42  — recover the witness
+let o = echo_output(e)            # "answer" — the visible output
+
+let r = echo_to_residue(e)        # EchoR<Int, String> — witness erased; stability drops
+let still = echo_output(r)        # "answer" — output survives erasure
+let lost = residue_strictly_loses(r)   # true — non-recoverability is observable
+# echo_input(r)                   # ERROR: the witness is gone (decomposition is real)
 ----
 
 ==== Output

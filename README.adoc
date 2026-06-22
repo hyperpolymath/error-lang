@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 = Error-Lang: Systems Thinking Education Through Computational Haptics
+image:https://img.shields.io/badge/OpenSSF-Best_Practices-green?logo=openssourcesecurity[OpenSSF Best Practices,link="https://www.bestpractices.dev/en/projects/new?repo_url=https://github.com/hyperpolymath/error-lang"]
+
 :toc: preamble
 :toclevels: 3
 :icons: font
 :source-highlighter: rouge
 
-image:https://img.shields.io/badge/License-PMPL--1.0--or--later-indigo.svg[License: MPL-2.0,link="https://github.com/hyperpolymath/palimpsest-license"]
+image:https://img.shields.io/badge/License-MPL_2.0--1.0--or--later-indigo.svg[License: MPL-2.0,link="https://github.com/hyperpolymath/palimpsest-license"]
 image:https://img.shields.io/badge/Completion-100%25-brightgreen.svg[Completion: 100%]
 image:https://img.shields.io/badge/Status-Production--Ready-success.svg[Status: Production Ready]
 image:https://img.shields.io/badge/Pedagogy-Systems%20Thinking-blue.svg[Pedagogy]
@@ -60,6 +63,8 @@ Error-Lang makes programming learnable the way crafts are learnable - through di
 == What is Error-Lang?
 
 Unlike traditional teaching languages that hide complexity, Error-Lang **exposes complexity** and makes it explorable through **computational haptics** - visual feedback that lets you _feel_ code quality like a craftsperson feels their materials.
+
+Error-Lang is a *dissembling*, *decompositional* language: programs, syntax, semantics, and types can decay, decompose, and destabilise over time — and the language makes that decomposition **visible** rather than hiding it. Its `Echo` types give *structured loss* a first-class shape (`Echo<A,B>` retained witness + visible output; `EchoR<A,B>` the non-recoverable residue after `echo_to_residue`, which debits stability). The governing rule is **decomposition must be visible**. See `docs/Echo-Decomposition.adoc`.
 
 === The Craftsperson Analogy
 
@@ -417,7 +422,7 @@ See link:CONTRIBUTING.adoc[CONTRIBUTING.adoc] for development guidelines.
 
 SPDX-License-Identifier: MPL-2.0
 
-Error-Lang is free software under the https://github.com/hyperpolymath/palimpsest-license[Palimpsest License] (MPL-2.0).
+Error-Lang is free software under the https://github.com/hyperpolymath/palimpsest-license[MPL-2.0] (MPL-2.0).
 
 See link:LICENSE[LICENSE] for full terms.
 
