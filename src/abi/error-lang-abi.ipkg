@@ -1,0 +1,14 @@
+-- SPDX-License-Identifier: MPL-2.0
+-- Copyright (c) 2026 Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+--
+-- The error-lang formal core + ABI binding layer.
+-- Build/typecheck:  idris2 --typecheck error-lang-abi.ipkg   (from src/abi)
+-- or per-module:    idris2 --check Stability.idr             (from src/abi)
+package error-lang-abi
+version = 0.1.0
+authors = "Jonathan D.A. Jewell"
+sourcedir = "."
+modules = Stability
+        , Positional
+        , Paradox
+        , Foreign
