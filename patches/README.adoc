@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) 2026 Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+= AffineScript toolchain patches
+:toc:
+
+Patches applied to a fresh `hyperpolymath/affinescript` checkout by
+`scripts/install-affinescript-toolchain.sh` before building the compiler, to
+support the ReScript -> AffineScript migration. Each is a stop-gap pending
+upstream; drop it from the install script once upstreamed.
+
+== affinescript-module-struct-fields.patch
+
+*Problem.* AffineScript's module resolver exported imported *enum* constructors
+but dropped imported *struct/alias* type definitions: `lib/resolve.ml` registered
+`TyEnum` variant constructors for imported modules but had a bare
+`| TyAlias _ | TyStruct _ | TyExtern -> ()`. Field access on an imported struct
+therefore failed with `Field 'x' not found in type T` — the named type stayed an
+opaque `TCon` and never expanded to its `TRecord`.
+
+This blocked a per-module `.res -> .affine` port: the shared AST in
+`compiler/src/Types.affine` (`Location`, `Token`, `Position`, ...) is
+field-accessed by every other compiler module.
+
+*Fix.* Thread imported modules' `type_env` (struct/alias/enum type definitions)
+and `constructor_env` into the importing module's type-check context, mirroring
+the existing `name_types` (scheme) threading that already made enums cross:
+
+* `lib/typecheck.ml` — `check_program` gains `?import_type_env` /
+  `?import_constructor_env`, seeding `ctx.type_env` / `ctx.constructor_env`.
+* `lib/resolve.ml` — a new `import_type_defs` copies a resolved module's
+  `type_env` / `constructor_env` into the destination context, called from all
+  three import forms (`use M;`, `use M::{...}`, `use M::*`); the imported-module
+  check site passes the new params.
+* `bin/main.ml` — the `check` / `compile` / `eval` entry points pass the threaded
+  `type_env` / `constructor_env` to `check_program`.
+
+*Verification.* A module importing a struct and accessing its (nested) fields,
+constructing it, and matching on an imported enum field now type-checks; existing
+stdlib cross-module imports (`http_fetch`, `option`, `io`) still pass.
+
+*Upstream.* This belongs in `hyperpolymath/affinescript` — it fixes any multi-file
+AffineScript program, not only error-lang. It could not be pushed from the
+migration session (affinescript was outside the session's repo scope); upstream
+when convenient, then delete this patch and its hook in the install script.
