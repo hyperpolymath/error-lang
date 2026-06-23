@@ -1,0 +1,235 @@
+// SPDX-License-Identifier: MPL-2.0
+// Types.affine — core type definitions for Error-Lang
+// Ported from compiler/src/Types.res. Port conventions:
+//   * ReScript inline-record variants -> positional constructor args.
+//   * array<T> -> [T]; option<T> -> Option<T>; dict<k,v> -> Dict<k,v>; tuples kept.
+//   * Token variants `Float`/`String` renamed `FloatTok`/`StringTok`
+//     (`Float`/`String` are reserved type keywords in AffineScript).
+
+use prelude::*;
+
+struct Position {
+  line: Int,
+  column: Int,
+  offset: Int
+}
+
+struct Location {
+  start: Position,
+  end_: Position,
+  file: String
+}
+
+enum TokenType {
+  // Keywords
+  Main, End, Let, Mutable, Function, Struct, If, Elseif, Else, While, For, In,
+  Break, Continue, Return, And, Or, Not, True, False, Nil, Gutter, Fn,
+  // Types
+  TInt, TFloat, TString, TBool, TArray, TEcho, TEchoR,
+  // Literals
+  Integer(Int),
+  FloatTok(Float),     // ReScript Float(float)
+  StringTok(String),   // ReScript String(string)
+  Identifier(String),
+  // Operators
+  Plus, Minus, Star, Slash, Percent, EqualEqual, BangEqual, Less, Greater,
+  LessEqual, GreaterEqual, Ampersand, Pipe, Caret, Tilde, LessLess, GreaterGreater,
+  Equal, Arrow, Question, Colon,
+  // Delimiters
+  LParen, RParen, LBracket, RBracket, LBrace, RBrace, Comma, Dot,
+  // Special
+  Newline, EOF, Error(String)
+}
+
+struct Token {
+  type_: TokenType,
+  lexeme: String,
+  loc: Location
+}
+
+// ============================================
+// AST
+// ============================================
+
+enum Expr {
+  IntLit(Int, Location),
+  FloatLit(Float, Location),
+  StringLit(String, Location),
+  BoolLit(Bool, Location),
+  NilLit(Location),
+  Ident(String, Location),
+  Array([Expr], Location),
+  Binary(Expr, BinaryOp, Expr, Location),
+  Unary(UnaryOp, Expr, Location),
+  Call(Expr, [Expr], Location),
+  Index(Expr, Expr, Location),
+  Member(Expr, String, Location),
+  Ternary(Expr, Expr, Expr, Location),
+  Lambda([Param], Option<TypeExpr>, LambdaBody, Location)
+}
+
+enum BinaryOp {
+  Add, Sub, Mul, Div, Mod,
+  Eq, Neq, Lt, Gt, Lte, Gte,
+  BAnd, BOr, BXor, Shl, Shr,
+  LAnd, LOr
+}
+
+enum UnaryOp { Neg, LNot, BNot }
+
+struct Param {
+  name: String,
+  type_: Option<TypeExpr>,
+  loc: Location
+}
+
+enum TypeExpr {
+  TyInt,
+  TyFloat,
+  TyString,
+  TyBool,
+  TyArray(TypeExpr),
+  // Echo types (Trope-IR-ready, see docs/Trope-Particularity-Integration.adoc):
+  //   TyEcho        ~ Trope[Phi]        (retained witness)
+  //   TyEchoResidue ~ FloatingQuality   (witness severed)
+  TyEcho(Option<TypeExpr>, Option<TypeExpr>),
+  TyEchoResidue(Option<TypeExpr>, Option<TypeExpr>),
+  TyIdent(String)
+}
+
+enum LambdaBody {
+  LambdaExpr(Expr),
+  LambdaBlock([Stmt])
+}
+
+enum Stmt {
+  // inline records -> positional: (mutable_, name, type_, value, loc)
+  LetStmt(Bool, String, Option<TypeExpr>, Expr, Location),
+  // (target, value, loc)
+  AssignStmt(Expr, Expr, Location),
+  // (cond, then_, elseifs, else_, loc)
+  IfStmt(Expr, [Stmt], [(Expr, [Stmt])], Option<[Stmt]>, Location),
+  // (cond, body, loc)
+  WhileStmt(Expr, [Stmt], Location),
+  // (var, iter, body, loc)
+  ForStmt(String, Expr, [Stmt], Location),
+  // (value, loc)
+  ReturnStmt(Option<Expr>, Location),
+  BreakStmt(Location),
+  ContinueStmt(Location),
+  // (println, args, loc)
+  PrintStmt(Bool, [Expr], Location),
+  // (tokens, recovered, loc)
+  GutterBlock([Token], Bool, Location),
+  ExprStmt(Expr)
+}
+
+enum Decl {
+  // (name, params, returnType, body, loc)
+  FunctionDecl(String, [Param], Option<TypeExpr>, [Stmt], Location),
+  // (name, fields, loc)
+  StructDecl(String, [(String, TypeExpr)], Location),
+  // (body, loc)
+  MainBlock([Stmt], Location),
+  StmtDecl(Stmt)
+}
+
+struct Program {
+  declarations: [Decl],
+  loc: Location
+}
+
+// ============================================
+// Errors
+// ============================================
+
+enum ErrorCode {
+  E0001, E0002, E0003, E0004, E0005, E0006, E0007, E0008, E0009, E0010
+}
+
+struct Diagnostic {
+  code: ErrorCode,
+  message: String,
+  loc: Location,
+  runNumber: Int,
+  hint: Option<String>
+}
+
+// ============================================
+// Runtime state & stability
+// ============================================
+
+enum StabilityFactor {
+  MutableState(Int, Int),       // mutations, readers
+  TypeInstability(Int),         // reassignments
+  NullPropagation(Int),         // depth
+  GlobalState(Int, Int),        // mutations, dependencies
+  UnhandledError(Int),          // paths
+  AlgorithmComplexity(Float),   // time_ms
+  MemoryLeak(Int),              // bytes
+  RaceCondition(Int)            // conflicts
+}
+
+struct StabilityReport {
+  score: Int,
+  factors: [StabilityFactor],
+  breakdown: Dict<String, Int>,
+  recommendations: [String]
+}
+
+struct RuntimeState {
+  runCounter: Int,
+  stabilityScore: Int,
+  lastError: Option<ErrorCode>,
+  seed: Int,
+  stabilityFactors: [StabilityFactor],
+  discoveredRules: [String],
+  historicalRuns: [Int]
+}
+
+fn make_default_state() -> RuntimeState {
+  #{
+    runCounter: 0,
+    stabilityScore: 100,
+    lastError: None,
+    seed: 0,
+    stabilityFactors: [],
+    discoveredRules: [],
+    historicalRuns: []
+  }
+}
+
+// Stability impact (non-positive), mirrors Types.res `stabilityImpact`.
+fn stability_impact(factor: StabilityFactor) -> Int {
+  match factor {
+    MutableState(mutations, readers) => -(10 * mutations + 5 * readers),
+    TypeInstability(reassignments) => -(15 * reassignments),
+    NullPropagation(depth) => -(20 * depth),
+    GlobalState(mutations, dependencies) => -(30 * mutations + 5 * dependencies),
+    UnhandledError(paths) => -(25 * paths),
+    AlgorithmComplexity(time_ms) => -trunc(time_ms / 10.0),
+    MemoryLeak(bytes) => -(10 * (bytes / 1024)),
+    RaceCondition(conflicts) => -(40 * conflicts)
+  }
+}
+
+// mirrors Types.res `calculateStability`: max(0, 100 + sum(impacts))
+fn calculate_stability(factors: [StabilityFactor]) -> Int {
+  let penalties = fold(factors, 0, |acc, x| acc + stability_impact(x));
+  max(0, 100 + penalties)
+}
+
+fn error_code_to_string(code: ErrorCode) -> String {
+  match code {
+    E0001 => "E0001",
+    E0002 => "E0002",
+    E0003 => "E0003",
+    E0004 => "E0004",
+    E0005 => "E0005",
+    E0006 => "E0006",
+    E0007 => "E0007",
+    E0008 => "E0008",
+    E0009 => "E0009",
+    E0010 => "E0010"
+  }
+}
