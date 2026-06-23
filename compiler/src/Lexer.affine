@@ -1,0 +1,363 @@
+// SPDX-License-Identifier: MPL-2.0
+// Lexer.affine — tokenizer for Error-Lang (ported from compiler/src/Lexer.res).
+//
+// AffineScript has no mutable struct fields or record-spread, so the imperative
+// ReScript lexer is rendered functionally: state-mutating helpers take a
+// LexerState and return a new one (full-record reconstruction); the scanners and
+// driver loop a `let mut` local. Single chars are Char (char_at / char_to_int);
+// the escape buffer is built with single-char substrings.
+//
+// Known parity gaps vs Lexer.res (decimal/core path is faithful; these are
+// tracked for a follow-up parity pass):
+//   - hex (0x) / binary (0b) integer prefixes
+//   - triple-quoted strings and the \0 null escape
+//   - smart-quote (U+201C / U+201D) detection (diagnostic E0007)
+
+module Lexer;
+
+use prelude::*;
+use string::{char_at, length, substring, is_digit, is_alpha, is_alphanumeric};
+use Types::*;
+
+pub struct LexerState {
+  source: String,
+  file: String,
+  pos: Int,
+  line: Int,
+  column: Int,
+  tokens: [Token],
+  diagnostics: [Diagnostic],
+  runNumber: Int
+}
+
+pub fn make(source: String, file: String, run_number: Int) -> LexerState {
+  #{ source: source, file: file, pos: 0, line: 1, column: 1,
+     tokens: [], diagnostics: [], runNumber: run_number }
+}
+
+// ---- peeking (read copyable fields only; never consume the state) ----
+
+fn peek_at(source: String, pos: Int, offset: Int) -> Option<Char> {
+  char_at(source, pos + offset)
+}
+
+// code point of the char at pos+offset, or -1 at end of input
+fn code_at(source: String, pos: Int, offset: Int) -> Int {
+  match char_at(source, pos + offset) {
+    Some(c) => char_to_int(c),
+    None => -1
+  }
+}
+
+fn mk_pos(line: Int, column: Int, offset: Int) -> Position {
+  #{ line: line, column: column, offset: offset }
+}
+
+fn is_hex_digit(c: Char) -> Bool {
+  let k = char_to_int(c);
+  (k >= 48 && k <= 57) || (k >= 97 && k <= 102) || (k >= 65 && k <= 70)
+}
+
+// ---- keyword table (ReScript Dict -> match on string equality) ----
+
+fn keyword_lookup(w: String) -> Option<TokenType> {
+  if w == "main" { Some(Main) }
+  else if w == "end" { Some(End) }
+  else if w == "let" { Some(Let) }
+  else if w == "mutable" { Some(Mutable) }
+  else if w == "function" { Some(Function) }
+  else if w == "struct" { Some(Struct) }
+  else if w == "if" { Some(If) }
+  else if w == "elseif" { Some(Elseif) }
+  else if w == "else" { Some(Else) }
+  else if w == "while" { Some(While) }
+  else if w == "for" { Some(For) }
+  else if w == "in" { Some(In) }
+  else if w == "break" { Some(Break) }
+  else if w == "continue" { Some(Continue) }
+  else if w == "return" { Some(Return) }
+  else if w == "and" { Some(And) }
+  else if w == "or" { Some(Or) }
+  else if w == "not" { Some(Not) }
+  else if w == "true" { Some(True) }
+  else if w == "false" { Some(False) }
+  else if w == "nil" { Some(Nil) }
+  else if w == "gutter" { Some(Gutter) }
+  else if w == "fn" { Some(Fn) }
+  else if w == "Int" { Some(TInt) }
+  else if w == "Float" { Some(TFloat) }
+  else if w == "String" { Some(TString) }
+  else if w == "Bool" { Some(TBool) }
+  else if w == "Array" { Some(TArray) }
+  else if w == "Echo" { Some(TEcho) }
+  else if w == "EchoR" { Some(TEchoR) }
+  else if w == "print" { Some(Identifier("print")) }
+  else if w == "println" { Some(Identifier("println")) }
+  else { None }
+}
+
+// ---- state transitions (consume + rebuild) ----
+
+fn advance(s: LexerState) -> LexerState {
+  let is_nl = code_at(s.source, s.pos, 0) == 10;
+  let new_line = if is_nl { s.line + 1 } else { s.line };
+  let new_col = if is_nl { 1 } else { s.column + 1 };
+  #{ source: s.source, file: s.file, pos: s.pos + 1,
+     line: new_line, column: new_col,
+     tokens: s.tokens, diagnostics: s.diagnostics, runNumber: s.runNumber }
+}
+
+fn add_token(s: LexerState, type_: TokenType, lexeme: String, loc: Location) -> LexerState {
+  let tok = #{ type_: type_, lexeme: lexeme, loc: loc };
+  #{ source: s.source, file: s.file, pos: s.pos, line: s.line, column: s.column,
+     tokens: s.tokens ++ [tok], diagnostics: s.diagnostics, runNumber: s.runNumber }
+}
+
+fn add_diagnostic(s: LexerState, code: ErrorCode, message: String, loc: Location) -> LexerState {
+  let diag = #{ code: code, message: message, loc: loc,
+                runNumber: s.runNumber, hint: None };
+  #{ source: s.source, file: s.file, pos: s.pos, line: s.line, column: s.column,
+     tokens: s.tokens, diagnostics: s.diagnostics ++ [diag], runNumber: s.runNumber }
+}
+
+// Advance once, emitting a token whose location spans the single consumed char.
+fn single_tok(s: LexerState, t: TokenType, lex: String) -> LexerState {
+  let start = mk_pos(s.line, s.column, s.pos);
+  let s2 = advance(s);
+  let loc = #{ start: start, end_: mk_pos(s2.line, s2.column, s2.pos), file: s2.file };
+  add_token(s2, t, lex, loc)
+}
+
+// ---- scanners ----
+
+fn scan_comment(s: LexerState) -> LexerState {
+  let mut st = s;
+  while (code_at(st.source, st.pos, 0) != 10) && (st.pos < length(st.source)) {
+    st = advance(st);
+  }
+  st
+}
+
+fn scan_identifier(s: LexerState) -> LexerState {
+  let start = mk_pos(s.line, s.column, s.pos);
+  let start_pos = s.pos;
+  let mut st = s;
+  while (match char_at(st.source, st.pos) { Some(c) => is_alphanumeric(c), None => false }) {
+    st = advance(st);
+  }
+  let lexeme = substring(st.source, start_pos, st.pos);
+  let loc = #{ start: start, end_: mk_pos(st.line, st.column, st.pos), file: st.file };
+  let type_ = match keyword_lookup(lexeme) {
+    Some(kw) => kw,
+    None => Identifier(lexeme)
+  };
+  add_token(st, type_, lexeme, loc)
+}
+
+fn scan_number(s: LexerState) -> LexerState {
+  let start = mk_pos(s.line, s.column, s.pos);
+  let start_pos = s.pos;
+  let mut st = s;
+
+  // integer part
+  while (match char_at(st.source, st.pos) { Some(c) => is_digit(c), None => false }) {
+    st = advance(st);
+  }
+
+  // optional fractional part: '.' followed by a digit
+  let mut is_float = false;
+  if (code_at(st.source, st.pos, 0) == 46) && (match char_at(st.source, st.pos + 1) { Some(c) => is_digit(c), None => false }) {
+    is_float = true;
+    st = advance(st); // '.'
+    while (match char_at(st.source, st.pos) { Some(c) => is_digit(c), None => false }) {
+      st = advance(st);
+    }
+  }
+
+  // optional exponent
+  let ec = code_at(st.source, st.pos, 0);
+  if ec == 101 || ec == 69 { // e / E
+    is_float = true;
+    st = advance(st);
+    let sgn = code_at(st.source, st.pos, 0);
+    if sgn == 43 || sgn == 45 { st = advance(st); } // + / -
+    while (match char_at(st.source, st.pos) { Some(c) => is_digit(c), None => false }) {
+      st = advance(st);
+    }
+  }
+
+  let lexeme = substring(st.source, start_pos, st.pos);
+  let loc = #{ start: start, end_: mk_pos(st.line, st.column, st.pos), file: st.file };
+  if is_float {
+    match parse_float(lexeme) {
+      Some(f) => add_token(st, FloatTok(f), lexeme, loc),
+      None => add_token(st, Error("Invalid float"), lexeme, loc)
+    }
+  } else {
+    match parse_int(lexeme) {
+      Some(n) => add_token(st, Integer(n), lexeme, loc),
+      None => add_token(st, Error("Invalid integer"), lexeme, loc)
+    }
+  }
+}
+
+// String literal (single-quote-aware double-quoted; escapes; no triple-quote —
+// simplified from the .res triple-quote handling, noted for the parity pass).
+fn scan_string(s: LexerState) -> LexerState {
+  let start = mk_pos(s.line, s.column, s.pos);
+  let mut st = advance(s); // opening quote
+  let mut buf = "";
+  let mut done = false;
+  let mut result = st;
+
+  while !done {
+    let c = code_at(st.source, st.pos, 0);
+    if c == -1 {
+      let loc = #{ start: start, end_: mk_pos(st.line, st.column, st.pos), file: st.file };
+      let st2 = add_diagnostic(st, E0002, "Unterminated string literal", loc);
+      result = add_token(st2, Error("Unterminated string"), buf, loc);
+      done = true;
+    } else if c == 34 { // closing "
+      st = advance(st);
+      let loc = #{ start: start, end_: mk_pos(st.line, st.column, st.pos), file: st.file };
+      let quoted = "\"" ++ buf ++ "\"";
+      result = add_token(st, StringTok(buf), quoted, loc);
+      done = true;
+    } else if c == 92 { // backslash escape
+      st = advance(st);
+      let e = code_at(st.source, st.pos, 0);
+      if e == 110 { buf = buf ++ "\n"; st = advance(st); }
+      else if e == 114 { buf = buf ++ "\r"; st = advance(st); }
+      else if e == 116 { buf = buf ++ "\t"; st = advance(st); }
+      else if e == 92 { buf = buf ++ "\\"; st = advance(st); }
+      else if e == 34 { buf = buf ++ "\""; st = advance(st); }
+      else if e == -1 { done = true; result = st; }
+      else {
+        let loc = #{ start: start, end_: mk_pos(st.line, st.column, st.pos), file: st.file };
+        st = add_diagnostic(st, E0003, "Invalid escape sequence", loc);
+        st = advance(st);
+      }
+    } else if c == 10 { // newline in string
+      let loc = #{ start: start, end_: mk_pos(st.line, st.column, st.pos), file: st.file };
+      let st2 = add_diagnostic(st, E0002, "Unterminated string literal (newline in string)", loc);
+      result = add_token(st2, Error("Unterminated string"), buf, loc);
+      done = true;
+    } else {
+      buf = buf ++ substring(st.source, st.pos, st.pos + 1);
+      st = advance(st);
+    }
+  }
+  result
+}
+
+// ---- main dispatch + driver ----
+
+fn step(s: LexerState) -> LexerState {
+  let c = code_at(s.source, s.pos, 0);
+  if c == 32 || c == 9 || c == 13 {
+    advance(s)
+  } else if c == 10 { // newline token
+    let start = mk_pos(s.line, s.column, s.pos);
+    let s2 = advance(s);
+    let loc = #{ start: start, end_: mk_pos(s2.line, s2.column, s2.pos), file: s2.file };
+    add_token(s2, Newline, "\\n", loc)
+  } else if c == 35 { // #
+    scan_comment(s)
+  } else if c == 43 { single_tok(s, Plus, "+") }
+  else if c == 45 { // - or ->
+    if code_at(s.source, s.pos, 1) == 62 {
+      let start = mk_pos(s.line, s.column, s.pos);
+      let s2 = advance(advance(s));
+      let loc = #{ start: start, end_: mk_pos(s2.line, s2.column, s2.pos), file: s2.file };
+      add_token(s2, Arrow, "->", loc)
+    } else { single_tok(s, Minus, "-") }
+  }
+  else if c == 42 { single_tok(s, Star, "*") }
+  else if c == 47 { single_tok(s, Slash, "/") }
+  else if c == 37 { single_tok(s, Percent, "%") }
+  else if c == 61 { // = or ==
+    if code_at(s.source, s.pos, 1) == 61 {
+      let start = mk_pos(s.line, s.column, s.pos);
+      let s2 = advance(advance(s));
+      let loc = #{ start: start, end_: mk_pos(s2.line, s2.column, s2.pos), file: s2.file };
+      add_token(s2, EqualEqual, "==", loc)
+    } else { single_tok(s, Equal, "=") }
+  }
+  else if c == 33 { // ! -> != or error
+    if code_at(s.source, s.pos, 1) == 61 {
+      let start = mk_pos(s.line, s.column, s.pos);
+      let s2 = advance(advance(s));
+      let loc = #{ start: start, end_: mk_pos(s2.line, s2.column, s2.pos), file: s2.file };
+      add_token(s2, BangEqual, "!=", loc)
+    } else {
+      let start = mk_pos(s.line, s.column, s.pos);
+      let s2 = advance(s);
+      let loc = #{ start: start, end_: mk_pos(s2.line, s2.column, s2.pos), file: s2.file };
+      add_diagnostic(s2, E0001, "Unexpected character '!'", loc)
+    }
+  }
+  else if c == 60 { // < <= <<
+    let n = code_at(s.source, s.pos, 1);
+    if n == 61 { two_char(s, LessEqual, "<=") }
+    else if n == 60 { two_char(s, LessLess, "<<") }
+    else { single_tok(s, Less, "<") }
+  }
+  else if c == 62 { // > >= >>
+    let n = code_at(s.source, s.pos, 1);
+    if n == 61 { two_char(s, GreaterEqual, ">=") }
+    else if n == 62 { two_char(s, GreaterGreater, ">>") }
+    else { single_tok(s, Greater, ">") }
+  }
+  else if c == 38 { single_tok(s, Ampersand, "&") }
+  else if c == 124 { single_tok(s, Pipe, "|") }
+  else if c == 94 { single_tok(s, Caret, "^") }
+  else if c == 126 { single_tok(s, Tilde, "~") }
+  else if c == 63 { single_tok(s, Question, "?") }
+  else if c == 58 { single_tok(s, Colon, ":") }
+  else if c == 40 { single_tok(s, LParen, "(") }
+  else if c == 41 { single_tok(s, RParen, ")") }
+  else if c == 91 { single_tok(s, LBracket, "[") }
+  else if c == 93 { single_tok(s, RBracket, "]") }
+  else if c == 123 { single_tok(s, LBrace, "{") }
+  else if c == 125 { single_tok(s, RBrace, "}") }
+  else if c == 44 { single_tok(s, Comma, ",") }
+  else if c == 46 { single_tok(s, Dot, ".") }
+  else if c == 34 { scan_string(s) } // "
+  else {
+    match char_at(s.source, s.pos) {
+      Some(ch) =>
+        if is_digit(ch) { scan_number(s) }
+        else if is_alpha(ch) { scan_identifier(s) }
+        else {
+          let start = mk_pos(s.line, s.column, s.pos);
+          let s2 = advance(s);
+          let loc = #{ start: start, end_: mk_pos(s2.line, s2.column, s2.pos), file: s2.file };
+          let lex = substring(s2.source, start.offset, s2.pos);
+          add_token(add_diagnostic(s2, E0004, "Illegal character", loc), Error("Illegal"), lex, loc)
+        },
+      None => s
+    }
+  }
+}
+
+fn two_char(s: LexerState, t: TokenType, lex: String) -> LexerState {
+  let start = mk_pos(s.line, s.column, s.pos);
+  let s2 = advance(advance(s));
+  let loc = #{ start: start, end_: mk_pos(s2.line, s2.column, s2.pos), file: s2.file };
+  add_token(s2, t, lex, loc)
+}
+
+pub fn tokenize(s0: LexerState) -> LexerState {
+  let mut s = s0;
+  while s.pos < length(s.source) {
+    s = step(s);
+  }
+  let eof = mk_pos(s.line, s.column, s.pos);
+  let loc = #{ start: eof, end_: mk_pos(s.line, s.column, s.pos), file: s.file };
+  add_token(s, EOF, "", loc)
+}
+
+pub fn lex(source: String, file: String, run_number: Int) -> ([Token], [Diagnostic]) {
+  let s = tokenize(make(source, file, run_number));
+  (s.tokens, s.diagnostics)
+}
