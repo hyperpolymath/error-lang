@@ -9,12 +9,38 @@
 ||| All functions have type signatures and safety guarantees proven at
 ||| compile-time through dependent types.
 
-module ErrorLang.ABI.Foreign
-
-import ErrorLang.ABI.Types
-import ErrorLang.ABI.Layout
+module Foreign
 
 %default total
+
+--------------------------------------------------------------------------------
+-- Minimal ABI value types (inlined so this binding module is self-contained
+-- and independently checkable: `idris2 --check Foreign.idr` from src/abi).
+-- The previous external `ErrorLang.ABI.Types` / `ErrorLang.ABI.Layout` modules
+-- were removed. The fabricated "Safety Proofs" that lived here -- which used
+-- `cast ()` / `cast Refl` over IO actions to manufacture evidence -- have been
+-- replaced by genuine, machine-checked proofs in the sibling modules
+-- Stability.idr, Positional.idr and Paradox.idr.
+--
+-- This file is a BINDING-DECLARATION layer only: it declares the C ABI of the
+-- Zig haptics library (ffi/zig). It asserts no theorems.
+--------------------------------------------------------------------------------
+
+||| Result codes (must match the Zig `Result` enum in ffi/zig/src/main.zig).
+public export
+data Result = Ok | Error | InvalidParam | OutOfMemory | NullPointer
+
+||| Opaque handle to a library instance (wraps the C pointer as Bits64).
+public export
+record Handle where
+  constructor MkHandle
+  handlePtr : Bits64
+
+||| Build a handle from a raw pointer; a null (0) pointer yields Nothing.
+export
+createHandle : Bits64 -> Maybe Handle
+createHandle 0 = Nothing
+createHandle p = Just (MkHandle p)
 
 --------------------------------------------------------------------------------
 -- Library Lifecycle
@@ -234,50 +260,18 @@ isInitialized h = do
   pure (result /= 0)
 
 --------------------------------------------------------------------------------
--- Safety Proofs
+-- Safety properties
 --------------------------------------------------------------------------------
-
-||| Theorem: Stability scores are always bounded [0, 100]
-|||
-||| Proof: The Zig implementation validates all score inputs in
-||| error_lang_set_stability_factor, rejecting any value < 0 or > 100.
-||| The weighted average in error_lang_calculate_stability preserves
-||| this bound through convex combination.
-export
-stabilityBounded : (h : Handle) -> (factor : Bits8) ->
-                   IO (Either Result (score : Double ** (0.0 <= score, score <= 100.0)))
-stabilityBounded h factor = do
-  score <- getStabilityFactor h factor
-  -- Runtime check (could be proven statically with refinement types)
-  if score >= 0.0 && score <= 100.0
-    then pure (Right (score ** (cast (), cast ())))
-    else pure (Left Error)
-
-||| Theorem: Positional operator behavior is deterministic
-|||
-||| Proof: For any given (line, column, operatorType) triple, the Zig
-||| implementation always returns the same behavior. The calculation is
-||| purely functional (column % n) with no hidden state.
-export
-positionalDeterministic : (h : Handle) -> (line, column : Bits32) -> (op : Bits8) ->
-                          IO (b1 : Bits8 ** (b2 : Bits8 ** (b1 = b2)))
-positionalDeterministic h line column op = do
-  b1 <- positionalOperator h line column op
-  b2 <- positionalOperator h line column op
-  -- In practice, should always be equal
-  pure (b1 ** (b2 ** cast Refl))
-
-||| Theorem: Paradox detection is monotonic with respect to code complexity
-|||
-||| As lineCount, varCount, or depth increase, the set of detected paradoxes
-||| (represented as a bitmask) cannot decrease.
-export
-paradoxMonotonic : (h : Handle) ->
-                   (lc1, lc2, vc1, vc2, d1, d2 : Bits32) ->
-                   (lc1 <= lc2) -> (vc1 <= vc2) -> (d1 <= d2) ->
-                   IO (p1 : Bits32 ** (p2 : Bits32 ** ((p1 .&. p2) = p1)))
-paradoxMonotonic h lc1 lc2 vc1 vc2 d1 d2 _ _ _ = do
-  p1 <- detectParadoxes h lc1 vc1 d1
-  p2 <- detectParadoxes h lc2 vc2 d2
-  -- Monotonicity should hold in practice (bitwise subset)
-  pure (p1 ** (p2 ** cast Refl))
+-- The properties this ABI relies on are proved -- genuinely, with no escape
+-- hatch and machine-checked under Idris2 0.8.0 -- in the sibling modules, NOT
+-- here:
+--   * stability score in [0,100]      -> Stability.idr  (stabilityUpperBound)
+--   * positional operator determinism -> Positional.idr (positionalDeterministic)
+--   * paradox-factor monotonicity     -> Paradox.idr    (superpositionMonotone,
+--                                                         temporalMonotone)
+--
+-- The earlier `stabilityBounded` / `positionalDeterministic` / `paradoxMonotonic`
+-- definitions here were unsound: they used `cast ()` / `cast Refl` over `IO`
+-- actions to fabricate evidence. Removed 2026-06-23. Proving the third one
+-- honestly also revealed that the *global* monotonicity claim is false of the
+-- implementation -- scope leakage is prime-gated; see Paradox.idr.
