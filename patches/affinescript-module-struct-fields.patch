@@ -1,0 +1,142 @@
+diff --git a/bin/main.ml b/bin/main.ml
+index 8230ab2..b772a3c 100644
+--- a/bin/main.ml
++++ b/bin/main.ml
+@@ -195,6 +195,8 @@ let check_file face json path =
+         resolve_refs := List.rev resolve_ctx.references;
+         (match Affinescript.Typecheck.check_program
+                  ~import_types:type_ctx.Affinescript.Typecheck.name_types
++                 ~import_type_env:type_ctx.Affinescript.Typecheck.type_env
++                 ~import_constructor_env:type_ctx.Affinescript.Typecheck.constructor_env
+                  resolve_ctx.symbols prog with
+         | Error e ->
+           add (Affinescript.Json_output.of_type_error e)
+@@ -242,6 +244,8 @@ let check_file face json path =
+       | Ok (resolve_ctx, type_ctx) ->
+         (match Affinescript.Typecheck.check_program
+                  ~import_types:type_ctx.Affinescript.Typecheck.name_types
++                 ~import_type_env:type_ctx.Affinescript.Typecheck.type_env
++                 ~import_constructor_env:type_ctx.Affinescript.Typecheck.constructor_env
+                  resolve_ctx.symbols prog with
+         | Error e ->
+           Format.eprintf "@[<v>%s@]@."
+@@ -505,6 +509,8 @@ let compile_file face json wasm_gc vscode_ext vscode_adapter vscode_no_lc
+       | Ok (resolve_ctx, import_type_ctx) ->
+         (match Affinescript.Typecheck.check_program
+                  ~import_types:import_type_ctx.Affinescript.Typecheck.name_types
++                 ~import_type_env:import_type_ctx.Affinescript.Typecheck.type_env
++                 ~import_constructor_env:import_type_ctx.Affinescript.Typecheck.constructor_env
+                  resolve_ctx.symbols prog with
+         | Error e ->
+           add (Affinescript.Json_output.of_type_error e)
+@@ -732,6 +738,8 @@ let compile_file face json wasm_gc vscode_ext vscode_adapter vscode_no_lc
+       | Ok (resolve_ctx, import_type_ctx) ->
+         (match Affinescript.Typecheck.check_program
+                  ~import_types:import_type_ctx.Affinescript.Typecheck.name_types
++                 ~import_type_env:import_type_ctx.Affinescript.Typecheck.type_env
++                 ~import_constructor_env:import_type_ctx.Affinescript.Typecheck.constructor_env
+                  resolve_ctx.symbols prog with
+         | Error e ->
+           Format.eprintf "@[<v>%s@]@."
+diff --git a/lib/resolve.ml b/lib/resolve.ml
+index 65a6b48..65a9206 100644
+--- a/lib/resolve.ml
++++ b/lib/resolve.ml
+@@ -654,6 +654,20 @@ let import_specific_items
+       Error (UndefinedVariable item.ii_name, item.ii_name.span)
+   ) (Ok ()) items
+ 
++(** Thread imported struct/alias/enum type definitions and value constructors
++    from a resolved source module into the destination type-check context, so
++    that field access on an imported struct resolves (companion to the scheme
++    imports above — a struct needs its TRecord definition, not just a
++    name_types scheme). *)
++let import_type_defs
++    (dest : Typecheck.context) (source : Typecheck.context) : unit =
++  Hashtbl.iter (fun name ty ->
++    Hashtbl.replace dest.Typecheck.type_env name ty
++  ) source.Typecheck.type_env;
++  Hashtbl.iter (fun name ty ->
++    Hashtbl.replace dest.Typecheck.constructor_env name ty
++  ) source.Typecheck.constructor_env
++
+ (** Resolve imports in a program using module loader *)
+ let rec resolve_and_typecheck_module
+     (loader : Module_loader.t)
+@@ -698,7 +712,10 @@ let rec resolve_and_typecheck_module
+      imported modules must check the same way top-level programs do.) *)
+   match
+     Typecheck.check_program
+-      ~import_types:type_ctx.Typecheck.name_types symbols prog
++      ~import_types:type_ctx.Typecheck.name_types
++      ~import_type_env:type_ctx.Typecheck.type_env
++      ~import_constructor_env:type_ctx.Typecheck.constructor_env
++      symbols prog
+   with
+   | Ok final_ctx -> Ok (symbols, final_ctx)
+   | Error type_err ->
+@@ -729,6 +746,7 @@ and resolve_imports_with_loader
+                 mod_type_ctx.Typecheck.var_types
+                 mod_type_ctx.Typecheck.name_types
+                 alias_str;
++              import_type_defs type_ctx mod_type_ctx;
+               Ok ()
+             | Error e -> Error e
+           end
+@@ -747,13 +765,15 @@ and resolve_imports_with_loader
+           (* Resolve and type-check the module *)
+           begin match resolve_and_typecheck_module loader loaded_mod with
+             | Ok (mod_symbols, mod_type_ctx) ->
+-              import_specific_items ctx.symbols
++              let* () = import_specific_items ctx.symbols
+                 type_ctx.Typecheck.var_types
+                 type_ctx.Typecheck.name_types
+                 mod_symbols
+                 mod_type_ctx.Typecheck.var_types
+                 mod_type_ctx.Typecheck.name_types
+-                items
++                items in
++              import_type_defs type_ctx mod_type_ctx;
++              Ok ()
+             | Error e -> Error e
+           end
+         | Error (Module_loader.ModuleNotFound _) ->
+@@ -785,6 +805,7 @@ and resolve_imports_with_loader
+                        sym)
+                 | _ -> ()
+               ) mod_symbols.all_symbols;
++              import_type_defs type_ctx mod_type_ctx;
+               Ok ()
+             | Error e -> Error e
+           end
+diff --git a/lib/typecheck.ml b/lib/typecheck.ml
+index e38e302..4390c71 100644
+--- a/lib/typecheck.ml
++++ b/lib/typecheck.ml
+@@ -2401,6 +2401,8 @@ let populate_call_effects (ctx : context) (prog : Ast.program) : unit =
+   Effect_sites.set_async_by_ord async_tbl
+ 
+ let check_program ?(import_types : (string, scheme) Hashtbl.t option)
++    ?(import_type_env : (string, ty) Hashtbl.t option)
++    ?(import_constructor_env : (string, ty) Hashtbl.t option)
+     (symbols : Symbol.t) (prog : Ast.program)
+     : (context, type_error) Result.t =
+   try
+@@ -2423,6 +2425,17 @@ let check_program ?(import_types : (string, scheme) Hashtbl.t option)
+   Option.iter (fun tbl ->
+     Hashtbl.iter (fun name sc -> Hashtbl.replace ctx.name_types name sc) tbl
+   ) import_types;
++  (* Thread imported struct/alias/enum type definitions (type_env) and value
++     constructors (constructor_env) so field access on an imported struct
++     resolves: enums already cross via name_types schemes, but a struct's
++     TRecord definition must be present for a named param type to expand to
++     its fields (otherwise it stays an opaque TCon -> FieldNotFound). *)
++  Option.iter (fun tbl ->
++    Hashtbl.iter (fun name ty -> Hashtbl.replace ctx.type_env name ty) tbl
++  ) import_type_env;
++  Option.iter (fun tbl ->
++    Hashtbl.iter (fun name ty -> Hashtbl.replace ctx.constructor_env name ty) tbl
++  ) import_constructor_env;
+   (* Forward pass: register all types, effects, traits, impls, and
+      function signatures so that mutually recursive declarations resolve. *)
+   let* () = List.fold_left (fun acc decl ->

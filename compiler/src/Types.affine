@@ -5,22 +5,28 @@
 //   * array<T> -> [T]; option<T> -> Option<T>; dict<k,v> -> Dict<k,v>; tuples kept.
 //   * Token variants `Float`/`String` renamed `FloatTok`/`StringTok`
 //     (`Float`/`String` are reserved type keywords in AffineScript).
+//
+// This is the `Types` module; sibling compiler modules `use Types::{...}`.
+// Cross-module struct field access requires the affinescript module-resolver
+// fix in patches/affinescript-module-struct-fields.patch.
+
+module Types;
 
 use prelude::*;
 
-struct Position {
+pub struct Position {
   line: Int,
   column: Int,
   offset: Int
 }
 
-struct Location {
+pub struct Location {
   start: Position,
   end_: Position,
   file: String
 }
 
-enum TokenType {
+pub enum TokenType {
   // Keywords
   Main, End, Let, Mutable, Function, Struct, If, Elseif, Else, While, For, In,
   Break, Continue, Return, And, Or, Not, True, False, Nil, Gutter, Fn,
@@ -41,7 +47,7 @@ enum TokenType {
   Newline, EOF, Error(String)
 }
 
-struct Token {
+pub struct Token {
   type_: TokenType,
   lexeme: String,
   loc: Location
@@ -51,7 +57,7 @@ struct Token {
 // AST
 // ============================================
 
-enum Expr {
+pub enum Expr {
   IntLit(Int, Location),
   FloatLit(Float, Location),
   StringLit(String, Location),
@@ -68,22 +74,22 @@ enum Expr {
   Lambda([Param], Option<TypeExpr>, LambdaBody, Location)
 }
 
-enum BinaryOp {
+pub enum BinaryOp {
   Add, Sub, Mul, Div, Mod,
   Eq, Neq, Lt, Gt, Lte, Gte,
   BAnd, BOr, BXor, Shl, Shr,
   LAnd, LOr
 }
 
-enum UnaryOp { Neg, LNot, BNot }
+pub enum UnaryOp { Neg, LNot, BNot }
 
-struct Param {
+pub struct Param {
   name: String,
   type_: Option<TypeExpr>,
   loc: Location
 }
 
-enum TypeExpr {
+pub enum TypeExpr {
   TyInt,
   TyFloat,
   TyString,
@@ -97,12 +103,12 @@ enum TypeExpr {
   TyIdent(String)
 }
 
-enum LambdaBody {
+pub enum LambdaBody {
   LambdaExpr(Expr),
   LambdaBlock([Stmt])
 }
 
-enum Stmt {
+pub enum Stmt {
   // inline records -> positional: (mutable_, name, type_, value, loc)
   LetStmt(Bool, String, Option<TypeExpr>, Expr, Location),
   // (target, value, loc)
@@ -124,7 +130,7 @@ enum Stmt {
   ExprStmt(Expr)
 }
 
-enum Decl {
+pub enum Decl {
   // (name, params, returnType, body, loc)
   FunctionDecl(String, [Param], Option<TypeExpr>, [Stmt], Location),
   // (name, fields, loc)
@@ -134,7 +140,7 @@ enum Decl {
   StmtDecl(Stmt)
 }
 
-struct Program {
+pub struct Program {
   declarations: [Decl],
   loc: Location
 }
@@ -143,11 +149,11 @@ struct Program {
 // Errors
 // ============================================
 
-enum ErrorCode {
+pub enum ErrorCode {
   E0001, E0002, E0003, E0004, E0005, E0006, E0007, E0008, E0009, E0010
 }
 
-struct Diagnostic {
+pub struct Diagnostic {
   code: ErrorCode,
   message: String,
   loc: Location,
@@ -159,7 +165,7 @@ struct Diagnostic {
 // Runtime state & stability
 // ============================================
 
-enum StabilityFactor {
+pub enum StabilityFactor {
   MutableState(Int, Int),       // mutations, readers
   TypeInstability(Int),         // reassignments
   NullPropagation(Int),         // depth
@@ -170,14 +176,14 @@ enum StabilityFactor {
   RaceCondition(Int)            // conflicts
 }
 
-struct StabilityReport {
+pub struct StabilityReport {
   score: Int,
   factors: [StabilityFactor],
   breakdown: Dict<String, Int>,
   recommendations: [String]
 }
 
-struct RuntimeState {
+pub struct RuntimeState {
   runCounter: Int,
   stabilityScore: Int,
   lastError: Option<ErrorCode>,
@@ -187,7 +193,7 @@ struct RuntimeState {
   historicalRuns: [Int]
 }
 
-fn make_default_state() -> RuntimeState {
+pub fn make_default_state() -> RuntimeState {
   #{
     runCounter: 0,
     stabilityScore: 100,
@@ -200,7 +206,7 @@ fn make_default_state() -> RuntimeState {
 }
 
 // Stability impact (non-positive), mirrors Types.res `stabilityImpact`.
-fn stability_impact(factor: StabilityFactor) -> Int {
+pub fn stability_impact(factor: StabilityFactor) -> Int {
   match factor {
     MutableState(mutations, readers) => -(10 * mutations + 5 * readers),
     TypeInstability(reassignments) => -(15 * reassignments),
@@ -214,12 +220,12 @@ fn stability_impact(factor: StabilityFactor) -> Int {
 }
 
 // mirrors Types.res `calculateStability`: max(0, 100 + sum(impacts))
-fn calculate_stability(factors: [StabilityFactor]) -> Int {
+pub fn calculate_stability(factors: [StabilityFactor]) -> Int {
   let penalties = fold(factors, 0, |acc, x| acc + stability_impact(x));
   max(0, 100 + penalties)
 }
 
-fn error_code_to_string(code: ErrorCode) -> String {
+pub fn error_code_to_string(code: ErrorCode) -> String {
   match code {
     E0001 => "E0001",
     E0002 => "E0002",

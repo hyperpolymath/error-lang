@@ -7,7 +7,9 @@
 # Requires `affinescript` on PATH (see scripts/install-affinescript-toolchain.sh).
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+# Check from compiler/src so sibling-module imports (`use Types::{...}`) resolve
+# via the loader's current-dir search.
+cd "$(dirname "$0")/../compiler/src"
 
 if ! command -v affinescript >/dev/null 2>&1; then
   echo "affinescript not found — run scripts/install-affinescript-toolchain.sh" >&2
@@ -15,7 +17,7 @@ if ! command -v affinescript >/dev/null 2>&1; then
 fi
 
 shopt -s nullglob
-sources=(compiler/src/*.affine)
+sources=(*.affine)
 if [ ${#sources[@]} -eq 0 ]; then
   echo "no .affine sources yet (ReScript->AffineScript migration in progress)."
   exit 0
@@ -23,7 +25,7 @@ fi
 
 fail=0
 for f in "${sources[@]}"; do
-  printf 'checking %-28s ... ' "$(basename "$f")"
+  printf 'checking %-28s ... ' "$f"
   if affinescript check "$f" >/tmp/as_check.out 2>&1; then
     echo ok
   else

@@ -29,8 +29,20 @@ $SUDO apt-get install -y \
   libfmt-ocaml-dev libcmdliner-ocaml-dev libyojson-ocaml-dev \
   libppxlib-ocaml-dev libjs-of-ocaml-dev
 
-# 2. Fetch + build the compiler binary.
+# 2. Fetch the compiler.
 [ -d "$AFFINE_SRC/.git" ] || git clone --depth 1 "$AFFINE_REPO" "$AFFINE_SRC"
+
+# 2a. Apply the module-resolver fix (export imported struct field definitions so
+#     cross-module struct field access type-checks) until it is upstreamed to
+#     affinescript. See patches/README.adoc. Idempotent: skipped if already applied.
+PATCH="$(cd "$(dirname "$0")/.." && pwd)/patches/affinescript-module-struct-fields.patch"
+if [ -f "$PATCH" ] && git -C "$AFFINE_SRC" apply --check "$PATCH" 2>/dev/null; then
+  git -C "$AFFINE_SRC" apply "$PATCH" && echo "applied $PATCH"
+else
+  echo "module-struct-fields patch: already applied or not applicable — continuing"
+fi
+
+# 3. Build the compiler binary.
 ( cd "$AFFINE_SRC" && dune build bin/main.exe )
 
 # 3. Install the binary + stdlib. The module loader discovers the stdlib at
