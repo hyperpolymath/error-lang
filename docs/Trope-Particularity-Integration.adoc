@@ -55,7 +55,7 @@ Two further alignments make the fit unusually tight:
   `echo_input`, `echo_output` implement witness-retention and irreversible erasure
   — which the calculus names `preserve`, `detach`, and field `project` (§5).
 * **The verification toolchains already overlap.** The trope-checker's core is an
-  Agda reference plus an Idris2 implementation (`trope-checker/src/idris2/Main.idr`);
+  Agda reference plus an Idris2 implementation (the `trope-checker` repo's Idris2 core, `Main.idr`);
   Error-Lang already carries an Idris2 proof of the *scalar* bound
   (`src/abi/Stability.idr`). The integration generalises that proof's target from
   a clamped integer to a checked grade.
@@ -186,7 +186,7 @@ recoverable as a projection, but the verdict additionally names the edge to repa
 | Trust boundary | Pin `trope-checker/schemas/trope-ir.schema.json` at `version 0.1`, `profile prevent`. The schema is the contract (mirrors the IR spec's "schema is the trust boundary").
 | Dependency | Depend on the `trope-checker` *binary* (a pure `IR → verdict` function) and the *IR schema* by URL. Do **not** vendor the calculus, the checker, or `haec`.
 | New backend | Add a `trope` lowering target beside the existing codegen backends: Error-Lang AST/VM ops → Trope IR DAG (schema-validated) → `trope-checker` → verdict object → surfaced as Error-Lang diagnostics.
-| Precedent | The same trust-tagged "fold external prover output back into our report" pattern panic-attack uses in `src/aggregate/`.
+| Precedent | The same trust-tagged "fold external prover output back into our report" pattern the panic-attack repo uses in its `aggregate/` module.
 | Multi-producer | Sanctioned by `trope-ir.adoc`: "a static analyser for an existing language MAY emit Trope IR for code it did not author." Error-Lang's analyzer is exactly such a producer.
 |===
 
