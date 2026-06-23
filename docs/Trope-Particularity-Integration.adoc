@@ -1,0 +1,246 @@
+// SPDX-License-Identifier: MPL-2.0
+// Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+= Trope-Particularity Integration: Error-Lang as a Trope IR Front End
+:toc:
+:sectnums:
+:source-highlighter: rouge
+
+[abstract]
+This is a *design* (not yet implemented). It proposes that Error-Lang become a
+second *front end* to the portable trope-checker
+(https://github.com/hyperpolymath/trope-checker[`hyperpolymath/trope-checker`]),
+lowering its Echo operations and its stability factors to the language-neutral
+*Trope IR* (v0.1, `prevent` profile) and consuming the checker's verified verdict
+and witness. It defines the object/effect/grade correspondence, the verdict
+mapping, the architecture (reference, never vendor), and — most importantly — the
+per-front-end *lowering-correctness obligations* the trope-checker does **not**
+discharge for us.
+
+Both systems already sit on the same substrate: the
+https://github.com/hyperpolymath/echo-types[echo-types] graded-loss line, cited
+verbatim by `docs/Echo-Decomposition.adoc` and by the trope calculus
+(`trope-checker/spec/calculus.adoc`, "Provenance of the ideas"). This document
+makes that shared lineage *operational*.
+
+== Motivation: a stability score is a scalar; loss is not
+
+Error-Lang grades instability with `calculateStability` (`compiler/src/Types.res`
+lines 270–274):
+
+[source]
+----
+calculateStability(factors) = max(0, 100 + Σ stabilityImpact(factor))
+----
+
+Every `stabilityFactor` is mapped to a single negative integer and the integers
+are summed. That is a *scalar collapse* of structured loss. The trope-particularity
+calculus exists to reject exactly this move — its load-bearing thesis
+(`calculus.adoc` §3) is:
+
+[quote]
+A grade is *not a scalar*: two operations can lose the same _amount_ yet differ
+in _kind_ and in _honesty_.
+
+So the calculus's three-coordinate grade is a principled *upgrade* of Error-Lang's
+stability model. It lets us keep _which_ particularity degraded, whether the loss
+is _recoverable_, and whether it is _honest_ — and it yields a use-relative
+*verdict* with a *witness edge* ("the operation to repair") in place of an opaque
+`0–100` number. For a language whose entire identity is the *visible decomposition*
+of structure (`Echo-Decomposition.adoc`, "Decomposition must be visible"), this is
+a capability upgrade, not ornament.
+
+Two further alignments make the fit unusually tight:
+
+* **The Echo operations already _are_ trope effects.** `echo`, `echo_to_residue`,
+  `echo_input`, `echo_output` implement witness-retention and irreversible erasure
+  — which the calculus names `preserve`, `detach`, and field `project` (§5).
+* **The verification toolchains already overlap.** The trope-checker's core is an
+  Agda reference plus an Idris2 implementation (`trope-checker/src/idris2/Main.idr`);
+  Error-Lang already carries an Idris2 proof of the *scalar* bound
+  (`src/abi/Stability.idr`). The integration generalises that proof's target from
+  a clamped integer to a checked grade.
+
+== The correspondence
+
+=== Objects: Echo ↔ trope, EchoR ↔ FloatingQuality
+
+A trope is a property-instance over the field set
+`Φ = {quality, bearer, context, record}` (`calculus.adoc` §2). Error-Lang's
+`Echo<A,B>` — a retained witness `x : A` with the visible output `y : B` it
+reached — populates Φ as:
+
+[cols="1,2,3",options="header"]
+|===
+| Φ field | Echo content | Justification
+
+| `bearer`  | the witness `x : A` | the *particular* entity the result is a result _of_
+| `quality` | the reached output `y : B` (and `f x ≡ y`) | the situated property borne by `x`
+| `context` | the function `f` / evaluation site | what individuates this fibre element
+| `record`  | the runtime pairing `VEcho{input,output}` | honest provenance of how `y` arose
+|===
+
+[cols="1,2",options="header"]
+|===
+| Echo form | Trope IR node
+
+| `Echo<A,B>`  | `type: "Trope"`, `present: ["quality","bearer","context","record"]`
+| `EchoR<A,B>` | `type: "FloatingQuality"`, `present: ["quality"]` (no `bearer` — the severance is structurally visible)
+|===
+
+The type change `Echo → EchoR` is exactly the type change `Trope → FloatingQuality`,
+and the reason `echo_input` is *illegal on a residue* (`Echo-Decomposition.adoc`
+Plane 3) is, in IR terms, that a `FloatingQuality` node has *no bearer field to
+project*. The same fact, two vocabularies.
+
+=== Echo operations → writable effects
+
+[cols="2,2,3",options="header"]
+|===
+| Echo op | Effect | Grade (per `calculus.adoc` §5)
+
+| `echo(x,y)`         | `preserve` | `ε` — all fields `Present`, `bond=Intact`, `merge=Single`
+| `echo_output(e)`    | `project[quality]` | drop `bearer,context,record`; quality survives; `bond=Withheld`
+| `echo_input(e)`     | `project[bearer]`  | legal only while `bearer ∈ S`; *undefined on `FloatingQuality`*
+| `echo_to_residue(e)`| `detach`   | `sever`: `fate(quality)=Present`, others `Dropped`, `bond=Severed`, `merge=Single`
+|===
+
+The `[Stab-Erase]` rule (`spec/type-system.md` §7) debits stability *exactly once*,
+on `echo_to_residue`, and never on projection. That is precisely the calculus's
+accounting: `detach` carries the `Severed` (irrecoverable) loss; `project` carries
+only a recoverable `Withheld`. The educational invariant "`echo_to_residue` must
+**not** become a silent cast" is the calculus's refusal of untagged/deceptive
+collapse.
+
+.Worked Trope IR — `echo_to_residue` as a `detach` (illustrative, schema-shaped)
+[source,json]
+----
+{
+  "version": "0.1", "profile": "prevent",
+  "nodes": [
+    { "id": "e",   "type": "Trope", "present": ["quality","bearer","context","record"] },
+    { "id": "res", "type": "FloatingQuality", "present": ["quality"] }
+  ],
+  "edges": [
+    { "id": "erase", "effect": "detach", "inputs": ["e"], "output": "res",
+      "grade": {
+        "fate": { "quality": {"k":"Present"}, "bearer": {"k":"Dropped"},
+                  "context": {"k":"Dropped"}, "record": {"k":"Dropped"} },
+        "bond": { "k": "Severed" }, "merge": { "k": "Single" } },
+      "note": "echo_to_residue: witness erased, output reachable" }
+  ],
+  "use_model": { "output": "res", "floor": { "bond": { "k": "Withheld" } } }
+}
+----
+
+Here the floor demands `bond ⊒ Withheld` (the use needs a _recoverable_ bearer);
+since `detach` delivered `Severed`, the verdict is `p-insufficient`, witness =
+`erase`. A use that only reads `echo_output` would declare a quality-only floor and
+pass. The score becomes a *reason*.
+
+=== stabilityFactor → grade
+
+Each `stabilityFactor` becomes a grade, with its `stabilityImpact` magnitude
+feeding the fidelity element `δ`. Crucially, the two *silent* instabilities land
+on the deceptive `Conflated` bottom — an untagged merge of particulars — which,
+under the `prevent` profile, is a *lowering fault* the validator rejects by name.
+Error-Lang's worst bugs are the calculus's moral-core violation.
+
+[cols="2,3,2",options="header"]
+|===
+| Factor | Grade (faithful lowering) | Honesty
+
+| `TypeInstability{reassignments}`   | `fate(quality)=Attenuated(15·r)` | faithful
+| `NullPropagation{depth}`           | `fate(quality)=Attenuated(20·d)`, `Dropped` at the leaf | faithful
+| `UnhandledError{paths}`            | `fate=Dropped` on the unguarded error fields | faithful (visible gap)
+| `AlgorithmComplexity{time_ms}`     | `fate=Attenuated(δ)`, `δ=⊤` when unbounded (matches `fix`→`⊤`, §7) | faithful
+| `MutableState{mutations,readers}`  | `fate(quality)=Attenuated(10·m+5·r)`; `Fused(τ=write-site)` if writes blend | faithful if tracked
+| `MemoryLeak{bytes}`                | `detach`: `bond=Severed` (owner unreachable, irrecoverable) | faithful
+| `GlobalState{mutations,deps}`      | `Fused(τ=global@site)` if threaded; **`Conflated` (fault)** if silent | *deceptive when silent*
+| `RaceCondition{conflicts}`         | `Fused(τ=lock)` if serialised; **`Conflated` (fault)** if unsynchronised | *deceptive when silent*
+|===
+
+=== Verdict and witness
+
+[cols="1,2",options="header"]
+|===
+| Error-Lang today | Trope-checker
+
+| `score = max(0,100+Σ)` | `p-sufficient ⟺ floor(U) ⊑ acc(output)`
+| (no locus) | `p-insufficient` + *witness edge* = first edge whose accumulated grade drops below the floor
+| `breakdown : dict<string,int>` | per-coordinate retention at each node
+| `recommendStabilization(factor)` | human advice *attached to the witnessed edge* (now principled, not heuristic)
+| `Stability.idr`: `score ∈ [0,100]` | grade soundness (`calculus.adoc` §8): declared grade never over-claims retention
+|===
+
+The witness is, by the calculus's own statement (§6.2), "the trope-particularity
+analogue of the invariant-path argmin" — the same argmin shape `Stability.idr`
+already reasons about. The verdict thus _subsumes_ the current score: the score is
+recoverable as a projection, but the verdict additionally names the edge to repair.
+
+== Architecture: reference, never vendor
+
+[cols="1,3",options="header"]
+|===
+| Concern | Decision
+
+| Trust boundary | Pin `trope-checker/schemas/trope-ir.schema.json` at `version 0.1`, `profile prevent`. The schema is the contract (mirrors the IR spec's "schema is the trust boundary").
+| Dependency | Depend on the `trope-checker` *binary* (a pure `IR → verdict` function) and the *IR schema* by URL. Do **not** vendor the calculus, the checker, or `haec`.
+| New backend | Add a `trope` lowering target beside the existing codegen backends: Error-Lang AST/VM ops → Trope IR DAG (schema-validated) → `trope-checker` → verdict object → surfaced as Error-Lang diagnostics.
+| Precedent | The same trust-tagged "fold external prover output back into our report" pattern panic-attack uses in `src/aggregate/`.
+| Multi-producer | Sanctioned by `trope-ir.adoc`: "a static analyser for an existing language MAY emit Trope IR for code it did not author." Error-Lang's analyzer is exactly such a producer.
+|===
+
+== O2 — lowering-correctness obligations (ours to discharge)
+
+The trope-checker proves the *composition* of grades is sound. It explicitly does
+**not** prove that an Error-Lang construct lowered to effect `X` _is_ an `X`
+(`calculus.adoc` §8, firewall 2; §10-O2). Those are our proof obligations:
+
+[cols="1,4",options="header"]
+|===
+| ID | Obligation
+
+| *L-Echo* | `OpEchoToResidue` (`VM.res`) semantically _is_ `detach`: the witness becomes unreachable ⇒ `bond=Severed`; output reachability survives ⇒ `fate(quality)=Present`. **Open decision:** is residue's quality `Present`, or `Attenuated(δ)` (only "reachability", not full `y`)? This must be fixed before Phase 1 freezes the lowering.
+| *L-Grade* | Each `stabilityFactor`'s grade is a *faithful over-approximation* of the real loss (grade-soundness direction: never claim more retention than occurs). The current `stabilityImpact` magnitudes are heuristic; for soundness `δ` must be a conservative loss bound.
+| *L-Silent* | The `Conflated` lowering of `GlobalState`/`RaceCondition` is correct only when the merge is genuinely untagged. If a provenance tag is recoverable, we MUST emit `Fused(τ)` instead; emitting `Conflated` for a tractable merge is a false positive.
+| *L-Floor* | The `use_model` floor Error-Lang emits faithfully encodes the program's declared stability requirement (per-function loss signatures, §7 "Declared signatures at the boundaries").
+|===
+
+These mirror, in Error-Lang's setting, the open obligations the calculus states for
+itself (O1–O4) — and they are checkable with the *same* Idris2 discipline already
+used in `src/abi/`.
+
+== Phasing
+
+[cols="1,3",options="header"]
+|===
+| Phase | Work
+
+| *0 (now)* | Shape the AffineScript Echo types (during the ReScript→AffineScript port) so `Echo`/`EchoR`/`echo_to_residue` lower cleanly to `Trope`/`FloatingQuality`/`detach`. This document + cross-references. *No new runtime coupling.*
+| *1* | Implement the `trope` lowering backend for the Echo operations only (the tightest correspondence). Emit schema-valid IR; conformance-test against `trope-checker/tests/conformance/fixtures/`.
+| *2* | Lower `stabilityFactor` → grade and emit a `use_model`; surface the verdict + witness as diagnostics alongside (then in place of) the scalar score.
+| *3* | Discharge L-Echo / L-Grade / L-Silent / L-Floor as Idris2/Agda proofs; CI-gate the lowering.
+|===
+
+== Open questions
+
+* *Profile.* Adopt `prevent` (silent merges rejected at validation — strongest, and
+  on-message for "decomposition must be visible") or `detect` (representable, caught
+  at the verdict)? This design assumes `prevent`.
+* *Residue fidelity* (L-Echo): `Present` vs `Attenuated(δ)` for `echo_to_residue`.
+* *Floor authorship.* Where do use-models come from — a whole-program default, or
+  per-function loss-signature annotations the learner writes?
+* *Coverage* (calculus O1): are all eight `stabilityFactor`s expressible with the
+  six writable effects? The table above is a well-chosen mapping, not yet a theorem.
+
+== See also
+
+* `docs/Echo-Decomposition.adoc` — the three decomposition planes this builds on.
+* `docs/Design-Philosophy.adoc` — consequence amplification and the stability score.
+* `spec/type-system.md` §7 — typing rules and the `[Stab-Erase]` stability debit.
+* `src/abi/Stability.idr` — the existing Idris2 bound proof (verdict-soundness anchor).
+* External (referenced, not vendored):
+  https://github.com/hyperpolymath/trope-checker[trope-checker] (`spec/calculus.adoc`,
+  `spec/trope-ir.adoc`, `schemas/trope-ir.schema.json`),
+  https://github.com/hyperpolymath/trope-particularity-workbench[trope-particularity-workbench]
+  (the nine effects), https://github.com/hyperpolymath/echo-types[echo-types] (shared substrate).
