@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: MPL-2.0
+# Copyright (c) 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
+#
+# AffineScript type-check gate. The compiler's source of truth is now the
+# `.affine` modules under compiler/src/ (the legacy ReScript `.res` sources were
+# removed once parity was reached). This gate builds the AffineScript toolchain
+# and type-checks every `.affine` source so a regression cannot land unnoticed.
+name: AffineScript Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: affinescript-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  affinescript-check:
+    name: Type-check .affine sources
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
+
+      # Builds hyperpolymath/affinescript from distro OCaml packages (opam-free)
+      # and installs the `affinescript` CLI to /usr/local/bin.
+      - name: Install AffineScript toolchain
+        run: bash scripts/install-affinescript-toolchain.sh
+
+      # cd's to compiler/src and runs `affinescript check` on every *.affine so
+      # sibling-module imports resolve. Non-zero exit fails the gate.
+      - name: Type-check AffineScript sources
+        run: bash verification/check-affinescript.sh
