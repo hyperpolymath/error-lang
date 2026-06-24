@@ -1,0 +1,403 @@
+// SPDX-License-Identifier: MPL-2.0
+// View.affine — pure render layer for the Error-Lang Studio IDE.
+// Ported from ide/src/View.res (ReScript-TEA → AffineScript + provided Dom vdom).
+//
+// ── Port conventions ──────────────────────────────────────────────────────
+//   * `open Model` + `open Msg` -> `use Model::*;` + `use Msg::*;`.
+//   * `type html = Tea.Html.html<msg>` -> `Dom::VNode` (the provided MPL-2.0
+//     vdom — NOT affinescript-dom, which is AGPL and licence-incompatible).
+//   * `Tea.Html.div(~className=c, [...])`     -> `h("div", [("class", c)], [...])`.
+//     `Tea.Html.h1`/`header`/`span`/… similarly -> `h("<tag>", attrs, children)`.
+//   * Attribute helpers:
+//       ~className=c        -> ("class", c)
+//       ~id=i               -> ("id", i)
+//       ~style=s            -> ("style", s)
+//       ~value=v            -> ("value", v)
+//       ~disabled=true      -> ("disabled", "true")  (only emitted when true)
+//       ~selected=true      -> ("selected", "selected") (only emitted when true)
+//   * `Array.map(xs, f)->Array.toList` -> `map(xs, f)` (already a `[VNode]`).
+//   * `Int.toString` -> `int_to_string`; `${...}` templates -> `++` concat.
+//   * `Dict.get(model.layerViews, k)->Option.getOr("…")` ->
+//     assoc-list `lookup` + `option::unwrap_or`.
+//   * The ReScript `and`-recursive render helpers become top-level `fn`s
+//     (mutually visible in AffineScript). `themeFromString` is ported but the
+//     theme `<select>` change is wired host-side (see handler table).
+//
+// ── EVENT MODEL: handler-id ↔ Msg table ───────────────────────────────────
+//   The provided Dom vdom carries events as (event-name, handler-id) string
+//   pairs (no embedded closures), so the View stays a pure Model -> VNode.
+//   `Main.affine`'s bridge maps each handler-id back to the Msg below and
+//   dispatches it to `update`. ReScript `~onClick=Tea.Html.onClick(M)` becomes
+//   `h_on(tag, attrs, [("click", "<handler-id>")], children)`.
+//
+//   handler-id              event   Msg reconstructed by Main
+//   ----------------------- ------- ------------------------------------------
+//   "run-program"           click   RunProgram
+//   "stop-program"          click   StopProgram        (shown as "⏸ Pause")
+//   "step-program"          click   StepProgram
+//   "change-theme"          change  ChangeTheme(themeFromString(<select value>))
+//   "layer:grammar"         click   NavigateToLayer(Grammar)
+//   "layer:parser"          click   NavigateToLayer(Parser)
+//   "layer:ast"             click   NavigateToLayer(AST)
+//   "layer:semantics"       click   NavigateToLayer(Semantics)
+//   "layer:runtime"         click   NavigateToLayer(Runtime)
+//   "panel:editor"          click   SwitchPanel(EditorPanel)
+//   "panel:dashboard"       click   SwitchPanel(DashboardPanel)
+//   "panel:analyzer"        click   SwitchPanel(AnalyzerPanel)
+//   "panel:navigator"       click   SwitchPanel(NavigatorPanel)
+//   "panel:explorer"        click   SwitchPanel(ExplorerPanel)
+//   "why:<factor>"          click   RunFiveWhys(<factor>)   (factor after "why:")
+//
+//   The "why:<factor>" id encodes its String payload inline (the only
+//   per-instance dynamic handler), exactly as the .res closed over `factor`.
+//   For the theme <select>, the Msg's Theme payload comes from the DOM
+//   element's value at dispatch time (parity with `~onChange=value => …`).
+//
+// ── Faithfulness notes ────────────────────────────────────────────────────
+//   * Same DOM structure, same tag nesting, same class names, same text
+//     labels and emoji/glyphs, same score-class / emoji thresholds, same
+//     conditional branches (isRunning, sidebarVisible, activePanel, hasErrors,
+//     empty-list placeholders, fiveWhysResult None/Some) as View.res.
+//   * `Tea.Html.div([], [])` empty placeholders -> `h("div", [], [])`.
+//   * No `runTests` / Console code exists in View.res, so nothing omitted.
+
+module View;
+
+use prelude::*;
+use option::{unwrap_or};
+use Model::*;
+use Msg::*;
+use Dom::{VNode, h, h_on, text};
+
+// assoc-list lookup for `layerViews` (Dict<_,_> is unconstructable; Model
+// stores it as `[(String, String)]`).
+fn lookup_layer(pairs: [(String, String)], key: String) -> Option<String> {
+  let mut result = None;
+  for p in pairs {
+    let (k, v) = p;
+    if k == key { result = Some(v); }
+  }
+  result
+}
+
+// Helper: Convert string to theme (mirrors View.res `themeFromString`).
+// Used by Main's bridge when reconstructing ChangeTheme from the <select>.
+pub fn theme_from_string(s: String) -> Theme {
+  if s == "light" { Light }
+  else if s == "dark" { Dark }
+  else if s == "highcontrast" { HighContrast }
+  else { Dark }
+}
+
+// ── Main view ──────────────────────────────────────────────────────────────
+pub fn view(model: Model) -> VNode {
+  h("div", [("class", "error-lang-studio")], [
+    render_top_bar(model),
+    render_main_content(model),
+    render_bottom_panel(model)
+  ])
+}
+
+// Top bar with controls
+fn render_top_bar(model: Model) -> VNode {
+  h("header", [("class", "top-bar")], [
+    h("h1", [("class", "logo")], [text("Error-Lang Studio")]),
+    render_run_controls(model),
+    render_theme_selector(model)
+  ])
+}
+
+// Run/Stop/Step controls
+fn render_run_controls(model: Model) -> VNode {
+  let run_or_pause = if model.isRunning {
+    h_on("button", [], [("click", "stop-program")], [text("⏸ Pause")])
+  } else {
+    h_on("button", [], [("click", "run-program")], [text("▶ Run")])
+  };
+  let step_attrs = if model.isRunning {
+    [("disabled", "true")]
+  } else {
+    []
+  };
+  h("div", [("class", "run-controls")], [
+    run_or_pause,
+    h_on("button", step_attrs, [("click", "step-program")], [text("⏭ Step")]),
+    h("span", [("class", "run-number")], [text("Run #" ++ int_to_string(model.runNumber))])
+  ])
+}
+
+// Theme selector dropdown
+fn render_theme_selector(model: Model) -> VNode {
+  let dark_attrs = if model.theme == Dark {
+    [("value", "dark"), ("selected", "selected")]
+  } else {
+    [("value", "dark")]
+  };
+  let light_attrs = if model.theme == Light {
+    [("value", "light"), ("selected", "selected")]
+  } else {
+    [("value", "light")]
+  };
+  let hc_attrs = if model.theme == HighContrast {
+    [("value", "highcontrast"), ("selected", "selected")]
+  } else {
+    [("value", "highcontrast")]
+  };
+  h_on("select", [], [("change", "change-theme")], [
+    h("option", dark_attrs, [text("Dark")]),
+    h("option", light_attrs, [text("Light")]),
+    h("option", hc_attrs, [text("High Contrast")])
+  ])
+}
+
+// Main content area with 3-column layout
+fn render_main_content(model: Model) -> VNode {
+  let left = if model.sidebarVisible {
+    render_left_sidebar(model)
+  } else {
+    h("div", [("class", "sidebar-collapsed")], [])
+  };
+  h("main", [("class", "main-content")], [
+    left,
+    render_center_panel(model),
+    render_right_sidebar(model)
+  ])
+}
+
+// Left sidebar: Layer Navigator
+fn render_left_sidebar(model: Model) -> VNode {
+  h("aside", [("class", "left-sidebar")], [
+    h("h2", [], [text("Layers")]),
+    h("nav", [("class", "layer-nav")], [
+      render_layer_button(model, Grammar, "Grammar", "layer:grammar"),
+      render_layer_button(model, Parser, "Parser", "layer:parser"),
+      render_layer_button(model, AST, "AST", "layer:ast"),
+      render_layer_button(model, Semantics, "Semantics", "layer:semantics"),
+      render_layer_button(model, Runtime, "Runtime", "layer:runtime")
+    ]),
+    h("div", [("class", "layer-content")], [render_layer_view(model)])
+  ])
+}
+
+// Individual layer button
+fn render_layer_button(model: Model, layer: Layer, label: String, hid: String) -> VNode {
+  let is_active = model.currentLayer == layer;
+  let cls = if is_active { "layer-btn active" } else { "layer-btn" };
+  h_on("button", [("class", cls)], [("click", hid)], [text(label)])
+}
+
+// Layer view content (shows current layer details)
+fn render_layer_view(model: Model) -> VNode {
+  let layer_name = get_current_layer_name(model);
+  let content = unwrap_or(lookup_layer(model.layerViews, layer_name), "No content yet");
+  h("div", [("class", "layer-display")], [
+    h("h3", [], [text(layer_name)]),
+    h("pre", [("class", "layer-code")], [text(content)])
+  ])
+}
+
+// Center panel: Code Editor
+fn render_center_panel(model: Model) -> VNode {
+  let body = if model.activePanel == EditorPanel {
+    render_code_editor(model)
+  } else if model.activePanel == DashboardPanel {
+    render_dashboard(model)
+  } else if model.activePanel == AnalyzerPanel {
+    render_analyzer(model)
+  } else {
+    h("div", [], [text("Panel not implemented")])
+  };
+  h("section", [("class", "center-panel")], [
+    render_panel_tabs(model),
+    body
+  ])
+}
+
+// Panel tabs (Editor, Dashboard, Analyzer, etc.)
+fn render_panel_tabs(model: Model) -> VNode {
+  h("div", [("class", "panel-tabs")], [
+    render_tab(model, EditorPanel, "Editor", "panel:editor"),
+    render_tab(model, DashboardPanel, "Dashboard", "panel:dashboard"),
+    render_tab(model, AnalyzerPanel, "Analyzer", "panel:analyzer"),
+    render_tab(model, NavigatorPanel, "Navigator", "panel:navigator"),
+    render_tab(model, ExplorerPanel, "Explorer", "panel:explorer")
+  ])
+}
+
+// Individual tab button
+fn render_tab(model: Model, panel: Panel, label: String, hid: String) -> VNode {
+  let is_active = model.activePanel == panel;
+  let cls = if is_active { "tab active" } else { "tab" };
+  h_on("button", [("class", cls)], [("click", hid)], [text(label)])
+}
+
+// Code editor — Monaco mount point + status bar.
+// The monaco-setup.js module watches for #monaco-editor-container and
+// initialises the editor when it appears (automaticLayout handles resizing).
+fn render_code_editor(model: Model) -> VNode {
+  let cursor_text = "Ln " ++ int_to_string(model.cursorPosition.line) ++ ", Col " ++ int_to_string(model.cursorPosition.column);
+  let stability_text = "Stability: " ++ int_to_string(model.stabilityScore) ++ "/100";
+  let error_block = if has_errors(model) {
+    render_error_list(model)
+  } else {
+    h("div", [], [])
+  };
+  h("div", [("class", "code-editor")], [
+    h("div", [("id", "monaco-editor-container"), ("class", "monaco-editor-wrapper")], []),
+    h("div", [("class", "editor-status-bar")], [
+      h("span", [("class", "cursor-position")], [text(cursor_text)]),
+      h("span", [("class", "editor-language")], [text("Error-Lang")]),
+      h("span", [("class", "stability-badge")], [text(stability_text)])
+    ]),
+    error_block
+  ])
+}
+
+// Error list display
+fn render_error_list(model: Model) -> VNode {
+  let items = map(model.parseErrors, |err|
+    h("div", [("class", "error-item")], [text("⚠ " ++ err)])
+  );
+  h("div", [("class", "error-list")], items)
+}
+
+// Dashboard: Stability metrics and history
+fn render_dashboard(model: Model) -> VNode {
+  h("div", [("class", "dashboard")], [
+    render_stability_score(model),
+    render_stability_history(model),
+    render_stability_factors(model)
+  ])
+}
+
+// Stability score display (large number)
+fn render_stability_score(model: Model) -> VNode {
+  let score_class = if model.stabilityScore >= 90 {
+    "score excellent"
+  } else if model.stabilityScore >= 70 {
+    "score good"
+  } else if model.stabilityScore >= 50 {
+    "score fair"
+  } else {
+    "score poor"
+  };
+  h("div", [("class", "stability-score")], [
+    h("div", [("class", score_class)], [text(int_to_string(model.stabilityScore))]),
+    h("div", [("class", "score-label")], [text("Stability Score")])
+  ])
+}
+
+// Stability history sparkline
+fn render_stability_history(model: Model) -> VNode {
+  let bars = map(model.stabilityHistory, |score|
+    h("span", [("class", "bar"), ("style", "height: " ++ int_to_string(score) ++ "%")], [])
+  );
+  h("div", [("class", "stability-history")], [
+    h("h3", [], [text("History")]),
+    h("div", [("class", "sparkline")], bars)
+  ])
+}
+
+// Stability factors list
+fn render_stability_factors(model: Model) -> VNode {
+  let body = if len(model.stabilityFactors) == 0 {
+    h("p", [], [text("No stability issues detected")])
+  } else {
+    let items = map(model.stabilityFactors, |factor|
+      h("li", [], [
+        text(factor),
+        h_on("button", [("class", "why-btn")], [("click", "why:" ++ factor)], [text("Why?")])
+      ])
+    );
+    h("ul", [], items)
+  };
+  h("div", [("class", "stability-factors")], [
+    h("h3", [], [text("Factors")]),
+    body
+  ])
+}
+
+// Analyzer panel: Five Whys results
+fn render_analyzer(model: Model) -> VNode {
+  let body = match model.fiveWhysResult {
+    None => h("p", [], [text("Select a stability factor and click 'Why?' to analyze")]),
+    Some(result) => h("pre", [("class", "analysis-result")], [text(result)])
+  };
+  h("div", [("class", "analyzer")], [
+    h("h2", [], [text("Five Whys Analysis")]),
+    body
+  ])
+}
+
+// Right sidebar: Stability dashboard
+fn render_right_sidebar(model: Model) -> VNode {
+  h("aside", [("class", "right-sidebar")], [
+    render_stability_indicator(model),
+    render_quantum_variables(model),
+    render_paradoxes(model)
+  ])
+}
+
+// Stability indicator (visual bar)
+fn render_stability_indicator(model: Model) -> VNode {
+  let emoji = if model.stabilityScore >= 90 {
+    "✨"
+  } else if model.stabilityScore >= 70 {
+    "💫"
+  } else if model.stabilityScore >= 50 {
+    "⚠️"
+  } else {
+    "🔥"
+  };
+  h("div", [("class", "stability-indicator")], [
+    h("div", [("class", "emoji")], [text(emoji)]),
+    h("div", [("class", "bar-container")], [
+      h("div", [("class", "bar-filled"), ("style", "width: " ++ int_to_string(model.stabilityScore) ++ "%")], [])
+    ]),
+    h("div", [("class", "score-text")], [text(int_to_string(model.stabilityScore) ++ "/100")])
+  ])
+}
+
+// Quantum variables list
+fn render_quantum_variables(model: Model) -> VNode {
+  let body = if len(model.quantumVariables) == 0 {
+    h("p", [], [text("No quantum variables")])
+  } else {
+    let items = map(model.quantumVariables, |pair| {
+      let (name, types) = pair;
+      h("li", [], [text(name ++ ": " ++ types)])
+    });
+    h("ul", [], items)
+  };
+  h("div", [("class", "quantum-variables")], [
+    h("h3", [], [text("Quantum Variables")]),
+    body
+  ])
+}
+
+// Paradoxes discovered
+fn render_paradoxes(model: Model) -> VNode {
+  let body = if len(model.paradoxes) == 0 {
+    h("p", [], [text("No paradoxes yet - keep exploring!")])
+  } else {
+    let items = map(model.paradoxes, |paradox|
+      h("li", [], [text(paradox)])
+    );
+    h("ul", [], items)
+  };
+  h("div", [("class", "paradoxes")], [
+    h("h3", [], [text("Paradoxes Discovered")]),
+    body
+  ])
+}
+
+// Bottom panel: Output and logs
+fn render_bottom_panel(model: Model) -> VNode {
+  let lines = map(model.runtimeOutput, |line|
+    h("div", [("class", "output-line")], [text(line)])
+  );
+  h("footer", [("class", "bottom-panel")], [
+    h("h3", [], [text("Output")]),
+    h("div", [("class", "output-area")], lines)
+  ])
+}

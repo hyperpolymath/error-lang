@@ -1,0 +1,511 @@
+// SPDX-License-Identifier: MPL-2.0
+// Update.affine — state transitions for the Error-Lang Studio IDE.
+// Ported from ide/src/Update.res (ReScript-TEA → AffineScript).
+//
+// ── Port conventions ──────────────────────────────────────────────────────
+//   * `open Model` + `open Msg` -> `use Model::*;` + `use Msg::*;`.
+//   * `type cmd = Tea.Cmd.t<msg>` -> a local `pub enum Cmd { NoCmd, MsgCmd(Msg) }`
+//       Tea.Cmd.none      -> NoCmd
+//       Tea.Cmd.msg(m)    -> MsgCmd(m)
+//     (TEA effects in this IDE are only "no effect" or "dispatch another msg".)
+//   * `update : (msg, model) -> (model, cmd)` -> `update(msg, model) -> (Model, Cmd)`.
+//   * NO record-spread `{...model, x: v}` (parse error in AffineScript) and NO
+//     mutable struct fields → every transition rebuilds the whole Model record.
+//     To keep that faithful and DRY, single-field rebuilds go through
+//     `with_*` helpers below (each constructs a full record changing one/two
+//     fields; all other fields copied across unchanged).
+//   * `Array.concat(xs, [y])` -> `xs ++ [y]`.
+//   * `String.startsWith` -> `string::starts_with`;
+//     `String.sliceToEnd(path, ~start=9)` -> `string::substring(path, 9, len(path))`.
+//   * `update` and `handleRoute` are ReScript `and`-recursive; in AffineScript
+//     top-level `fn`s are mutually visible, so they call each other directly.
+//
+// ── Faithfulness notes ────────────────────────────────────────────────────
+//   * Same message→transition mapping as Update.res, including the chained
+//     commands (CodeChanged/MonacoContentChanged -> CompileCode; CompileCode ->
+//     CompilationSuccess; CompilationSuccess -> AnalyzeStability; AnalyzeStability
+//     -> StabilityAnalyzed; RunFiveWhys -> FiveWhysComplete) with the same
+//     simulated payloads ("AST placeholder", score 95, factor "mutable-state",
+//     "Analysis result...").
+//   * The `| _ => (model, Tea.Cmd.none)` catch-all is preserved as a `_` arm.
+//   * `handleRoute` parses "/explore/<layer>" exactly as the .res (same layer
+//     name mapping, same `AST` default) and re-enters `update(NavigateToLayer)`.
+
+module Update;
+
+use prelude::*;
+use string::{starts_with, substring};
+use Model::*;
+use Msg::*;
+
+// TEA command: either no effect, or dispatch another message.
+pub enum Cmd {
+  NoCmd,
+  MsgCmd(Msg)
+}
+
+// ── whole-record rebuild helpers (stand-ins for `{...model, field: v}`) ─────
+
+pub fn with_code(m: Model, code: String) -> Model {
+  #{
+    code: code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: m.ast,
+    parseErrors: m.parseErrors,
+    stabilityScore: m.stabilityScore,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: m.isRunning,
+    runtimeOutput: m.runtimeOutput,
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+pub fn with_cursor(m: Model, pos: Position) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: pos,
+    selection: m.selection,
+    ast: m.ast,
+    parseErrors: m.parseErrors,
+    stabilityScore: m.stabilityScore,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: m.isRunning,
+    runtimeOutput: m.runtimeOutput,
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+pub fn with_monaco_ready(m: Model, ready: Bool) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: m.ast,
+    parseErrors: m.parseErrors,
+    stabilityScore: m.stabilityScore,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: m.isRunning,
+    runtimeOutput: m.runtimeOutput,
+    runNumber: m.runNumber,
+    monacoReady: ready
+  }
+}
+
+// CompilationSuccess: ast = Some(a), parseErrors = []
+pub fn with_compilation_success(m: Model, a: String) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: Some(a),
+    parseErrors: [],
+    stabilityScore: m.stabilityScore,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: m.isRunning,
+    runtimeOutput: m.runtimeOutput,
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+// CompilationFailure: parseErrors = errors, ast = None
+pub fn with_compilation_failure(m: Model, errors: [String]) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: None,
+    parseErrors: errors,
+    stabilityScore: m.stabilityScore,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: m.isRunning,
+    runtimeOutput: m.runtimeOutput,
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+pub fn with_layer(m: Model, layer: Layer) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: m.ast,
+    parseErrors: m.parseErrors,
+    stabilityScore: m.stabilityScore,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: layer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: m.isRunning,
+    runtimeOutput: m.runtimeOutput,
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+// StabilityAnalyzed: score, factors, history += [score]
+pub fn with_stability_analyzed(m: Model, score: Int, factors: [String]) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: m.ast,
+    parseErrors: m.parseErrors,
+    stabilityScore: score,
+    stabilityHistory: m.stabilityHistory ++ [score],
+    stabilityFactors: factors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: m.isRunning,
+    runtimeOutput: m.runtimeOutput,
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+pub fn with_five_whys(m: Model, result: String) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: m.ast,
+    parseErrors: m.parseErrors,
+    stabilityScore: m.stabilityScore,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: Some(result),
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: m.isRunning,
+    runtimeOutput: m.runtimeOutput,
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+// RunProgram: isRunning = true, runtimeOutput = []
+pub fn with_run_started(m: Model) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: m.ast,
+    parseErrors: m.parseErrors,
+    stabilityScore: m.stabilityScore,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: true,
+    runtimeOutput: [],
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+pub fn with_runtime_output(m: Model, output: String) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: m.ast,
+    parseErrors: m.parseErrors,
+    stabilityScore: m.stabilityScore,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: m.isRunning,
+    runtimeOutput: m.runtimeOutput ++ [output],
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+// ExecutionComplete: isRunning = false, stabilityScore = finalScore
+pub fn with_execution_complete(m: Model, final_score: Int) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: m.ast,
+    parseErrors: m.parseErrors,
+    stabilityScore: final_score,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: false,
+    runtimeOutput: m.runtimeOutput,
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+pub fn with_panel(m: Model, panel: Panel) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: m.ast,
+    parseErrors: m.parseErrors,
+    stabilityScore: m.stabilityScore,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: panel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: m.isRunning,
+    runtimeOutput: m.runtimeOutput,
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+pub fn with_theme(m: Model, theme: Theme) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: m.ast,
+    parseErrors: m.parseErrors,
+    stabilityScore: m.stabilityScore,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: theme,
+    fontSize: m.fontSize,
+    sidebarVisible: m.sidebarVisible,
+    isRunning: m.isRunning,
+    runtimeOutput: m.runtimeOutput,
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+pub fn with_sidebar(m: Model, visible: Bool) -> Model {
+  #{
+    code: m.code,
+    fileName: m.fileName,
+    cursorPosition: m.cursorPosition,
+    selection: m.selection,
+    ast: m.ast,
+    parseErrors: m.parseErrors,
+    stabilityScore: m.stabilityScore,
+    stabilityHistory: m.stabilityHistory,
+    stabilityFactors: m.stabilityFactors,
+    currentLayer: m.currentLayer,
+    layerViews: m.layerViews,
+    fiveWhysResult: m.fiveWhysResult,
+    paradoxes: m.paradoxes,
+    quantumVariables: m.quantumVariables,
+    activePanel: m.activePanel,
+    theme: m.theme,
+    fontSize: m.fontSize,
+    sidebarVisible: visible,
+    isRunning: m.isRunning,
+    runtimeOutput: m.runtimeOutput,
+    runNumber: m.runNumber,
+    monacoReady: m.monacoReady
+  }
+}
+
+// ── update ─────────────────────────────────────────────────────────────────
+// Consumes a Msg and the old Model; produces (new Model, Cmd).
+
+pub fn update(msg: Msg, model: Model) -> (Model, Cmd) {
+  match msg {
+    // Code editing — trigger background compilation.
+    CodeChanged(new_code) => (with_code(model, new_code), MsgCmd(CompileCode)),
+
+    CursorMoved(pos) => (with_cursor(model, pos), NoCmd),
+
+    // Monaco editor events
+    MonacoReady => (with_monaco_ready(model, true), NoCmd),
+
+    MonacoContentChanged(new_code) => (with_code(model, new_code), MsgCmd(CompileCode)),
+
+    MonacoCursorMoved(line, col) => (with_cursor(model, #{ line: line, column: col }), NoCmd),
+
+    // Compilation — simulate (real compiler call in full implementation).
+    CompileCode => (model, MsgCmd(CompilationSuccess("AST placeholder"))),
+
+    // On success: store AST, clear errors, then trigger stability analysis.
+    CompilationSuccess(ast) => (with_compilation_success(model, ast), MsgCmd(AnalyzeStability)),
+
+    CompilationFailure(errors) => (with_compilation_failure(model, errors), NoCmd),
+
+    // Layer navigation
+    NavigateToLayer(layer) => (with_layer(model, layer), NoCmd),
+
+    // Stability analysis — simulate.
+    AnalyzeStability => (model, MsgCmd(StabilityAnalyzed(95, ["mutable-state"]))),
+
+    StabilityAnalyzed(score, factors) => (with_stability_analyzed(model, score, factors), NoCmd),
+
+    // Five Whys analysis — simulate.
+    RunFiveWhys(factor) => (model, MsgCmd(FiveWhysComplete("Analysis result..."))),
+
+    FiveWhysComplete(result) => (with_five_whys(model, result), NoCmd),
+
+    // Execution
+    RunProgram => (with_run_started(model), NoCmd),
+
+    RuntimeOutput(output) => (with_runtime_output(model, output), NoCmd),
+
+    ExecutionComplete(final_score) => (with_execution_complete(model, final_score), NoCmd),
+
+    // UI
+    SwitchPanel(panel) => (with_panel(model, panel), NoCmd),
+
+    ChangeTheme(theme) => (with_theme(model, theme), NoCmd),
+
+    ToggleSidebar => (with_sidebar(model, not(model.sidebarVisible)), NoCmd),
+
+    // Router integration
+    RouteChanged(path) => handle_route(path, model),
+
+    // Router handles this; no state change.
+    NavigateTo(path) => (model, NoCmd),
+
+    // catch-all (mirrors `| _ => (model, Tea.Cmd.none)`)
+    _ => (model, NoCmd)
+  }
+}
+
+// ── handleRoute ──────────────────────────────────────────────────────────
+// Parse "/explore/<layer>" and re-enter `update(NavigateToLayer(layer))`.
+
+pub fn handle_route(path: String, model: Model) -> (Model, Cmd) {
+  if starts_with(path, "/explore/") {
+    let layer_name = substring(path, 9, len(path));
+    let layer = if layer_name == "grammar" { Grammar }
+      else if layer_name == "parser" { Parser }
+      else if layer_name == "ast" { AST }
+      else if layer_name == "semantics" { Semantics }
+      else if layer_name == "runtime" { Runtime }
+      else { AST };
+    update(NavigateToLayer(layer), model)
+  } else {
+    (model, NoCmd)
+  }
+}

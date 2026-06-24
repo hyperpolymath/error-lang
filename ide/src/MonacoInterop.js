@@ -3,8 +3,9 @@
 // MonacoInterop.js - JavaScript interop layer for Monaco Editor
 // Author: Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 //
-// Bridges ReScript bindings (MonacoBindings.res) with Monaco Editor API.
-// Monaco is loaded globally via the AMD loader in index.html.
+// Host-side Monaco Editor glue. The AffineScript MonacoBindings.affine externs
+// are wired to these functions by the host shim (host.js); Monaco is loaded
+// globally via the AMD loader in index.html.
 
 function getMonaco() {
   if (typeof window !== "undefined" && window.monaco) {

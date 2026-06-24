@@ -68,7 +68,8 @@
     });
   </script>
 
-  <!-- Main application (TEA architecture, compiled from ReScript) -->
-  <script type="module" src="/src/Main.res.js"></script>
+  <!-- Main application (TEA architecture; AffineScript compiled to a Deno-ESM
+       bundle (src/Main.js) and driven by the host shim (src/host.js)) -->
+  <script type="module" src="/src/host.js"></script>
 </body>
 </html>

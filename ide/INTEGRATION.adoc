@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: CC-BY-SA-4.0
+// SPDX-License-Identifier: MPL-2.0
 // Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 = Error-Lang Studio: Ecosystem Integration
 :toc:
@@ -128,7 +128,7 @@ GitHub Pages / CDN
      (dest "/")))
 
   (build
-    ((command "cd ide && npm run build")
+    ((command "cd ide && deno task build")
      (output "ide/dist"))))
 ```
 
@@ -346,11 +346,10 @@ aspect TemporalScopeLeakage {
 ```bash
 # Develop IDE
 cd ide
-npm install
-npm run dev          # Vite dev server
+deno task dev        # affinescript compile --deno-esm, then Vite dev server
 
 # Build for production
-npm run build        # ReScript → JS → Vite bundle
+deno task build      # AffineScript → Deno-ESM JS → Vite bundle
 
 # Generate static site
 draig build          # Creates deployable site

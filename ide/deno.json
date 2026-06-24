@@ -1,23 +1,19 @@
 {
   "name": "@hyperpolymath/error-lang-studio",
   "version": "0.1.0",
-  "exports": "./src/Main.res.js",
+  "exports": "./src/host.js",
   "tasks": {
-    "clean": "rescript clean",
-    "build": "rescript build && deno run -A npm:vite build",
-    "dev": "deno task dev:rescript & deno task dev:vite",
-    "dev:rescript": "rescript build -w",
-    "dev:vite": "deno run -A npm:vite",
+    "clean": "rm -f src/Main.js",
+    "build:affine": "cd src && affinescript compile --deno-esm -o Main.js Main.affine",
+    "build": "deno task build:affine && deno run -A npm:vite build",
+    "dev": "deno task build:affine && deno run -A npm:vite",
     "serve": "deno run -A npm:vite preview"
   },
   "imports": {
-    "vite": "npm:vite@^5.4.11",
-    "rescript": "^12.0.0"
+    "vite": "npm:vite@^5.4.11"
   },
   "compilerOptions": {
-    "lib": ["deno.window", "dom", "dom.iterable"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "preact"
+    "lib": ["deno.window", "dom", "dom.iterable"]
   },
   "fmt": {
     "useTabs": false,
@@ -30,6 +26,6 @@
     "rules": {
       "tags": ["recommended"]
     },
-    "exclude": ["src/MonacoInterop.js", "src/monaco-setup.js"]
+    "exclude": ["src/MonacoInterop.js", "src/monaco-setup.js", "src/host.js", "src/Main.js"]
   }
 }

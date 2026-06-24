@@ -1,0 +1,171 @@
+// SPDX-License-Identifier: MPL-2.0
+// Model.affine — application state for the Error-Lang Studio IDE.
+// Ported from ide/src/Model.res (ReScript-TEA → AffineScript).
+//
+// ── Port conventions ──────────────────────────────────────────────────────
+//   * ReScript record types -> `pub struct`; the model record is rebuilt
+//     whole on every update (no record-spread / mutable fields in AffineScript).
+//   * `option<T>` -> `Option<T>` (prelude); `array<T>` -> `[T]`; tuples kept.
+//   * `dict<string,string>` -> assoc-list `[(String, String)]` (AffineScript's
+//     `Dict<K,V>` is unconstructable; the IDE only ever reads/derives from
+//     `layerViews`, so an assoc list is the faithful value-level stand-in).
+//   * The inline-record field `selection: option<{start, end_}>` -> a small
+//     named `pub struct Selection { start_, end_ }` wrapped in `Option`.
+//   * Enums are leaf types here; `Msg`/`Update`/`View` `use Model::*`.
+//
+// ── Faithfulness notes ────────────────────────────────────────────────────
+//   * Same field set, same initial values, same selector semantics as
+//     Model.res. `getCurrentLayerName`, `hasErrors`, `isStable`,
+//     `themeToString` ported verbatim (string outputs identical).
+//   * `Dict.make()` initial empty map -> empty assoc list `[]`.
+
+module Model;
+
+use prelude::*;
+
+pub struct Position {
+  line: Int,
+  column: Int
+}
+
+// ReScript inline record `{start: position, end_: position}` -> named struct.
+// `start` is a reserved-ish word in some faces; use `start_` to be safe.
+pub struct Selection {
+  start_: Position,
+  end_: Position
+}
+
+pub enum Layer {
+  Grammar,
+  Parser,
+  AST,
+  Semantics,
+  Runtime
+}
+
+pub enum Panel {
+  EditorPanel,
+  DashboardPanel,
+  NavigatorPanel,
+  AnalyzerPanel,
+  ExplorerPanel
+}
+
+pub enum AnalysisMode {
+  FiveWhys,
+  Fishbone,
+  SoftSystems,
+  Paradoxes
+}
+
+pub enum Theme {
+  Light,
+  Dark,
+  HighContrast
+}
+
+// Main application model. Rebuilt whole on each update (no record-spread).
+pub struct Model {
+  // Code state
+  code: String,
+  fileName: Option<String>,
+  cursorPosition: Position,
+  selection: Option<Selection>,
+
+  // Compilation state
+  ast: Option<String>,
+  parseErrors: [String],
+
+  // Stability tracking
+  stabilityScore: Int,
+  stabilityHistory: [Int],
+  stabilityFactors: [String],
+
+  // Layer navigation
+  currentLayer: Layer,
+  // layer name -> content (assoc list; Dict<_,_> is unconstructable)
+  layerViews: [(String, String)],
+
+  // Analysis results
+  fiveWhysResult: Option<String>,
+  paradoxes: [String],
+  quantumVariables: [(String, String)],
+
+  // UI state
+  activePanel: Panel,
+  theme: Theme,
+  fontSize: Int,
+  sidebarVisible: Bool,
+
+  // Execution state
+  isRunning: Bool,
+  runtimeOutput: [String],
+  runNumber: Int,
+
+  // Monaco editor state
+  monacoReady: Bool
+}
+
+// Initial model (mirrors Model.res `init`).
+pub fn init() -> Model {
+  #{
+    code: "# Write your Error-Lang code here\n\nmain\n    let x = 42\n    println(x)\nend",
+    fileName: None,
+    cursorPosition: #{ line: 1, column: 1 },
+    selection: None,
+
+    ast: None,
+    parseErrors: [],
+
+    stabilityScore: 100,
+    stabilityHistory: [100],
+    stabilityFactors: [],
+
+    currentLayer: AST,
+    layerViews: [],
+
+    fiveWhysResult: None,
+    paradoxes: [],
+    quantumVariables: [],
+
+    activePanel: EditorPanel,
+    theme: Dark,
+    fontSize: 14,
+    sidebarVisible: true,
+
+    isRunning: false,
+    runtimeOutput: [],
+    runNumber: 1,
+
+    monacoReady: false
+  }
+}
+
+// ── Selectors for derived state ───────────────────────────────────────────
+
+pub fn get_current_layer_name(model: Model) -> String {
+  match model.currentLayer {
+    Grammar => "Grammar",
+    Parser => "Parser",
+    AST => "AST",
+    Semantics => "Semantics",
+    Runtime => "Runtime"
+  }
+}
+
+pub fn has_errors(model: Model) -> Bool {
+  len(model.parseErrors) > 0
+}
+
+pub fn is_stable(model: Model) -> Bool {
+  model.stabilityScore >= 70
+}
+
+// Theme to string for Monaco interop (identical outputs to Model.res).
+pub fn theme_to_string(theme: Theme) -> String {
+  match theme {
+    Light => "light",
+    Dark => "dark",
+    HighContrast => "highcontrast"
+  }
+}

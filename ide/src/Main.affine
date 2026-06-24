@@ -1,0 +1,189 @@
+// SPDX-License-Identifier: MPL-2.0
+// Main.affine — application entry point for the Error-Lang Studio IDE.
+// Ported from ide/src/Main.res (ReScript-TEA → AffineScript).
+// Author: Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+//
+// ── Port conventions ──────────────────────────────────────────────────────
+//   * `open Model/Msg/Update/View` -> `use Model::*;` etc. Also uses the
+//     provided MPL-2.0 `Dom` vdom (`mount`) and `MonacoBindings`.
+//   * ReScript host externs become `pub extern fn` over opaque handles
+//     (mirroring Dom.affine's extern style):
+//       @val external document                          -> dom_document() -> Int
+//       @send external addEventListener(doc, ev, h)     -> dom_add_event_listener(doc, event, handler_id) -> Unit
+//       @get external detail / d["code"] / d["line"]    -> host_event_string(event, field) -> String
+//                                                          host_event_int(event, field) -> Int
+//       Js.Global.setTimeout(f, 500)                    -> host_set_timeout(handler_id, ms) -> Unit
+//       window.__errorLangSetup.initMonacoEditor()      -> monaco_init_editor() -> Int  (the setup shim)
+//       Js.log(...)                                     -> host_log(msg) -> Unit
+//     The real bodies live in the host JS shim (ide/src/*.js); these are
+//     typecheck-level signatures (same as Dom.affine / MonacoBindings.affine).
+//
+// ── RUN-LOOP WIRING ───────────────────────────────────────────────────────
+//   `Tea.App.beginnerProgram({model, update, view})` is realised explicitly:
+//     * `dispatch(msg, model)` runs `Update::update` and then CHASES the
+//       returned `Cmd` (NoCmd stops; MsgCmd(next) re-enters `dispatch`). This
+//       reproduces the .res chained effects exactly:
+//         CodeChanged/MonacoContentChanged -> CompileCode -> CompilationSuccess
+//         -> AnalyzeStability -> StabilityAnalyzed (and RunFiveWhys ->
+//         FiveWhysComplete). After settling, the new model is re-rendered with
+//         `render_app`.
+//     * `render_app(model)` = `Dom::mount(".app", View::view(model))`.
+//   AffineScript has no mutable top-level cell for "the current model", so the
+//   running model is threaded by value through `dispatch`; the host loop calls
+//   `bridge_handler(id, model, event)` with the latest model and stores the
+//   result (parity with TEA's internal model cell; the host owns the cell).
+//
+// ── DOM/Monaco EVENT BRIDGE (inverse of View's handler-id table) ───────────
+//   `handler_to_msg(id, value)` maps a Dom/Monaco handler-id back to a Msg,
+//   the inverse of the table documented in View.affine:
+//     "run-program"  -> RunProgram          "stop-program" -> StopProgram
+//     "step-program" -> StepProgram          "panel:*"      -> SwitchPanel(*)
+//     "layer:*"      -> NavigateToLayer(*)    "change-theme" -> ChangeTheme(themeFromString(value))
+//     "why:<factor>" -> RunFiveWhys(<factor>) (payload after the "why:" prefix)
+//   Monaco bridge ids (registered via MonacoBindings on the editor handle):
+//     "monaco-content-changed" -> MonacoContentChanged(<event "code">)
+//     "monaco-cursor-moved"    -> MonacoCursorMoved(<event "line">, <event "column">)
+//     "monaco-ready"           -> MonacoReady
+//
+// ── Faithfulness notes ────────────────────────────────────────────────────
+//   * Main.res only *stubs* the Monaco dispatch (its listeners `ignore(code)`
+//     and leave a "// In a full implementation: dispatch …" comment). This port
+//     ACTUALLY wires those ids to the real Msgs through `handler_to_msg` +
+//     `dispatch`, which is a faithful completion of the documented intent (the
+//     .res could not close the loop because rescript-tea's beginnerProgram hid
+//     the dispatch handle; the provided Dom event model exposes it via ids).
+//   * The setTimeout-guarded Monaco init (`typeof window.__errorLangSetup`) is
+//     preserved as `boot_monaco`, gated by a host `monaco_setup_available()`
+//     check, logging the same two branch messages.
+//   * `let () = main()` top-level entry -> a `pub fn main() -> Unit` (the host
+//     shim calls it on DOM-ready). No Console-only test code to omit.
+
+module Main;
+
+use prelude::*;
+use string::{starts_with, substring};
+use Model::*;
+use Msg::*;
+use Update::*;
+use View::{view, theme_from_string};
+use Dom::{mount};
+use MonacoBindings::*;
+
+// ── host externs (opaque Int handles; bodies in ide/src/*.js shim) ─────────
+pub extern fn dom_document() -> Int;
+pub extern fn dom_add_event_listener(doc: Int, event: String, handler_id: String) -> Unit;
+// Read a field off a host (Custom)Event by name, as String / Int.
+pub extern fn host_event_string(event: Int, field: String) -> String;
+pub extern fn host_event_int(event: Int, field: String) -> Int;
+pub extern fn host_set_timeout(handler_id: String, ms: Int) -> Unit;
+pub extern fn host_log(message: String) -> Unit;
+// window.__errorLangSetup availability + initMonacoEditor() handle.
+pub extern fn monaco_setup_available() -> Bool;
+pub extern fn monaco_init_editor() -> Int;
+
+// CSS selector for the app mount point.
+fn app_selector() -> String {
+  ".app"
+}
+
+// ── run-loop: chase Cmd effects, then render ───────────────────────────────
+
+// Run `update`, then chase any chained command to a fixed point, returning the
+// settled model (mirrors rescript-tea processing Tea.Cmd.msg synchronously).
+pub fn dispatch(msg: Msg, model: Model) -> Model {
+  let (next_model, cmd) = update(msg, model);
+  match cmd {
+    NoCmd => next_model,
+    MsgCmd(next) => dispatch(next, next_model)
+  }
+}
+
+// Re-render the whole app from the current model.
+pub fn render_app(model: Model) -> Unit {
+  mount(app_selector(), view(model))
+}
+
+// ── DOM/Monaco event bridge (inverse of View's handler-id table) ───────────
+
+// Map a handler-id (+ DOM-supplied value, e.g. a <select> value) back to a Msg.
+// Unknown ids fall through to a harmless no-op message (NavigateTo("")), which
+// `update` treats as no state change.
+pub fn handler_to_msg(id: String, value: String) -> Msg {
+  if id == "run-program" { RunProgram }
+  else if id == "stop-program" { StopProgram }
+  else if id == "step-program" { StepProgram }
+  else if id == "change-theme" { ChangeTheme(theme_from_string(value)) }
+  else if id == "layer:grammar" { NavigateToLayer(Grammar) }
+  else if id == "layer:parser" { NavigateToLayer(Parser) }
+  else if id == "layer:ast" { NavigateToLayer(AST) }
+  else if id == "layer:semantics" { NavigateToLayer(Semantics) }
+  else if id == "layer:runtime" { NavigateToLayer(Runtime) }
+  else if id == "panel:editor" { SwitchPanel(EditorPanel) }
+  else if id == "panel:dashboard" { SwitchPanel(DashboardPanel) }
+  else if id == "panel:analyzer" { SwitchPanel(AnalyzerPanel) }
+  else if id == "panel:navigator" { SwitchPanel(NavigatorPanel) }
+  else if id == "panel:explorer" { SwitchPanel(ExplorerPanel) }
+  else if id == "monaco-ready" { MonacoReady }
+  else if starts_with(id, "why:") { RunFiveWhys(substring(id, 4, len(id))) }
+  else { NavigateTo("") }
+}
+
+// Host entry: a Dom/Monaco event fired for `id`; produce the next model and
+// re-render. The host owns the model cell and feeds back the returned model.
+pub fn bridge_handler(id: String, model: Model, value: String) -> Model {
+  let msg = handler_to_msg(id, value);
+  let next = dispatch(msg, model);
+  render_app(next);
+  next
+}
+
+// Monaco content-change bridge: read the event's "code" field, dispatch
+// MonacoContentChanged (mirrors Main.res's "error-lang-code-changed" listener,
+// here fully wired instead of `ignore(code)`).
+pub fn bridge_monaco_content(event: Int, model: Model) -> Model {
+  let code = host_event_string(event, "code");
+  let next = dispatch(MonacoContentChanged(code), model);
+  render_app(next);
+  next
+}
+
+// Monaco cursor-move bridge: read "line"/"column", dispatch MonacoCursorMoved
+// (mirrors the "error-lang-cursor-moved" listener).
+pub fn bridge_monaco_cursor(event: Int, model: Model) -> Model {
+  let line = host_event_int(event, "line");
+  let column = host_event_int(event, "column");
+  let next = dispatch(MonacoCursorMoved(line, column), model);
+  render_app(next);
+  next
+}
+
+// ── Monaco bootstrap (setTimeout-guarded, parity with Main.res) ────────────
+pub fn boot_monaco() -> Unit {
+  if monaco_setup_available() {
+    let _editor = monaco_init_editor();
+    host_log("Error-Lang Studio: Monaco editor initialized from Main.affine")
+  } else {
+    host_log("Error-Lang Studio: Monaco setup not yet available, AMD loader will handle it")
+  }
+}
+
+// ── main: init model, register bridges, render, schedule Monaco init ────────
+pub fn main() -> Unit {
+  let model = init();
+
+  // Register Monaco event bridges on the document (handler-ids the host shim
+  // dispatches back through `bridge_handler` / the monaco bridges).
+  let doc = dom_document();
+  dom_add_event_listener(doc, "error-lang-code-changed", "monaco-content-changed");
+  dom_add_event_listener(doc, "error-lang-cursor-moved", "monaco-cursor-moved");
+
+  // Register Error-Lang language + themes with Monaco (no-op until shim loads).
+  monaco_register_error_lang_language();
+  monaco_register_error_lang_themes();
+
+  // Initial render.
+  render_app(model);
+
+  // Initialise Monaco after a short delay (host shim invokes "boot-monaco").
+  host_set_timeout("boot-monaco", 500)
+}

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: CC-BY-SA-4.0
+// SPDX-License-Identifier: MPL-2.0
 // Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 = Error-Lang Studio: IDE Architecture
 :toc:
@@ -8,7 +8,14 @@
 
 Error-Lang Studio is a web-based IDE that makes computational forces visible and navigable. It's not just a code editor - it's an **archaeology toolkit** for exploring how code transforms through abstraction layers.
 
-== Architecture: The Elm Architecture (TEA) in ReScript
+NOTE: *Migrated to AffineScript.* The IDE was ported from ReScript to
+AffineScript (`.res` -> `.affine`) per the Hyperpolymath language policy. The
+app compiles via `affinescript compile --deno-esm` to a self-contained
+`src/Main.js` bundle, driven by the host shim `src/host.js`. The TEA structure
+below is unchanged; the inline code samples still show ReScript syntax and are
+retained as conceptual illustrations pending a syntax refresh.
+
+== Architecture: The Elm Architecture (TEA) in AffineScript
 
 We use TEA because it's:
 - **Predictable**: Unidirectional data flow
