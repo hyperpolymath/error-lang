@@ -233,8 +233,8 @@ deno run -A cli/visual-feedback.js program.err
 
 [source,bash]
 ----
-# Start LSP server for IDE integration
-deno run --allow-all cli/lsp-server.ts
+# Start LSP server for IDE integration (built into the AffineScript compiler)
+affinescript server
 ----
 
 Features:
