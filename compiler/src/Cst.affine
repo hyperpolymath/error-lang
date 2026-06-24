@@ -1,0 +1,228 @@
+// SPDX-License-Identifier: MPL-2.0
+// Cst.affine — Concrete Syntax Tree for Error-Lang (ported from compiler/src/Cst.res).
+//
+// A CST preserves all source text (whitespace, comments, exact tokens) so source
+// round-trips. Ported to AffineScript's functional style (no mut struct fields /
+// record spread): stateful classify_trivia loops a `let mut` local; lex_with_trivia
+// folds raw tokens carrying the last token in hand (so newline-trailing-trivia and
+// trailing source are attached without array-index mutation).
+//
+// Selective `Types` import: Cst's node kinds (MainBlock/FunctionDecl/LetStmt/...)
+// would collide with Types' Decl/Stmt constructors under a glob import, so only the
+// token/location types (+ the Newline constructor for matching) are imported.
+//
+// Omitted vs Cst.res (documented):
+//   - node_at: returning a deepest *subtree* needs a node used both to recurse into
+//     and to return — not expressible under affine ownership without a shared/clone
+//     type. Auxiliary (IDE cursor lookup); deferred.
+//   - run_tests: the test harness (Console-based) is not part of the compiler.
+
+module Cst;
+
+use prelude::*;
+use string::{length, substring, join, char_at};
+use collections::{flat_map};
+use Types::{TokenType, Position, Location, Token, Newline};
+use Lexer::{lex};
+
+// ---- trivia ----
+
+enum TriviaKind { TkWhitespace, TkLineComment, TkNewline }
+
+struct Trivia {
+  kind: TriviaKind,
+  text: String,
+  loc: Location
+}
+
+struct CstToken {
+  tokenKind: TokenType,
+  text: String,
+  leadingTrivia: [Trivia],
+  trailingTrivia: [Trivia],
+  loc: Location
+}
+
+enum CstNodeKind {
+  SourceFile, MainBlock, FunctionDecl, StructDecl, LetStmt, IfStmt, WhileStmt,
+  ForStmt, ReturnStmt, BreakStmt, ContinueStmt, PrintStmt, GutterBlock, ExprStmt,
+  BinaryExpr, UnaryExpr, CallExpr, IndexExpr, MemberExpr, TernaryExpr, LambdaExpr,
+  ArrayLitExpr, ParamList, ArgList, ErrorNode
+}
+
+enum CstNode {
+  NodeToken(CstToken),
+  NodeTree(CstTree)
+}
+
+struct CstTree {
+  kind: CstNodeKind,
+  children: [CstNode],
+  loc: Location
+}
+
+// ---- location helpers ----
+
+fn mk_pos(line: Int, column: Int, offset: Int) -> Position {
+  #{ line: line, column: column, offset: offset }
+}
+
+fn mk_loc(start_off: Int, end_off: Int, file: String) -> Location {
+  #{ start: mk_pos(0, 0, start_off), end_: mk_pos(0, 0, end_off), file: file }
+}
+
+fn code_at_str(s: String, i: Int) -> Int {
+  match char_at(s, i) {
+    Some(c) => char_to_int(c),
+    None => -1
+  }
+}
+
+fn is_ws_code(c: Int) -> Bool { c == 32 || c == 9 || c == 13 }
+
+// ---- source reconstruction (round-trip) ----
+
+fn trivia_text(t: Trivia) -> String { t.text }
+
+pub fn to_source(node: CstNode) -> String {
+  match node {
+    NodeToken(tok) => {
+      let leading = join(map(tok.leadingTrivia, trivia_text), "");
+      let trailing = join(map(tok.trailingTrivia, trivia_text), "");
+      leading ++ tok.text ++ trailing
+    },
+    NodeTree(tree) => tree_to_source(tree)
+  }
+}
+
+pub fn tree_to_source(tree: CstTree) -> String {
+  join(map(tree.children, to_source), "")
+}
+
+// ---- token collection (document order) ----
+
+fn node_tokens(node: CstNode) -> [CstToken] {
+  match node {
+    NodeToken(tok) => [tok],
+    NodeTree(subtree) => tokens(subtree)
+  }
+}
+
+pub fn tokens(tree: CstTree) -> [CstToken] {
+  flat_map(node_tokens, tree.children)
+}
+
+// ---- trivia classification (gap of source -> trivia items) ----
+
+pub fn classify_trivia(gap: String, file: String, base_offset: Int) -> [Trivia] {
+  let mut result = [];
+  let mut i = 0;
+  let glen = length(gap);
+  while i < glen {
+    let c = code_at_str(gap, i);
+    if c == 35 { // '#': line comment to end of line
+      let start = i;
+      let mut j = i;
+      while (j < glen) && (code_at_str(gap, j) != 10) { j = j + 1; }
+      let loc = mk_loc(base_offset + start, base_offset + j, file);
+      result = result ++ [#{ kind: TkLineComment, text: substring(gap, start, j), loc: loc }];
+      i = j;
+    } else if c == 10 { // newline
+      let loc = mk_loc(base_offset + i, base_offset + i + 1, file);
+      result = result ++ [#{ kind: TkNewline, text: "\n", loc: loc }];
+      i = i + 1;
+    } else if is_ws_code(c) { // contiguous whitespace
+      let start = i;
+      let mut j = i;
+      while (j < glen) && is_ws_code(code_at_str(gap, j)) { j = j + 1; }
+      let loc = mk_loc(base_offset + start, base_offset + j, file);
+      result = result ++ [#{ kind: TkWhitespace, text: substring(gap, start, j), loc: loc }];
+      i = j;
+    } else { // anything else (shouldn't occur in gaps)
+      let loc = mk_loc(base_offset + i, base_offset + i + 1, file);
+      result = result ++ [#{ kind: TkWhitespace, text: substring(gap, i, i + 1), loc: loc }];
+      i = i + 1;
+    }
+  }
+  result
+}
+
+// ---- trivia-aware lexing ----
+
+struct LexAcc {
+  committed: [CstToken],
+  last: Option<CstToken>,
+  prev_end: Int
+}
+
+fn set_trailing(t: CstToken, trailing: [Trivia]) -> CstToken {
+  #{ tokenKind: t.tokenKind, text: t.text, leadingTrivia: t.leadingTrivia,
+     trailingTrivia: trailing, loc: t.loc }
+}
+
+pub fn lex_with_trivia(source: String, file: String, run_number: Int) -> [CstToken] {
+  let (raw_tokens, _diags) = lex(source, file, run_number);
+
+  let final = fold(raw_tokens, #{ committed: [], last: None, prev_end: 0 }, |acc, tok| {
+    let tok_start = tok.loc.start.offset;
+    let tok_end = tok.loc.end_.offset;
+    let leading = if tok_start > acc.prev_end {
+      classify_trivia(substring(source, acc.prev_end, tok_start), file, acc.prev_end)
+    } else {
+      []
+    };
+    match tok.type_ {
+      Newline => {
+        let nl = #{ kind: TkNewline, text: tok.lexeme, loc: tok.loc };
+        match acc.last {
+          None => {
+            let synth = #{ tokenKind: tok.type_, text: tok.lexeme, leadingTrivia: leading,
+                           trailingTrivia: [], loc: tok.loc };
+            #{ committed: acc.committed, last: Some(synth), prev_end: tok_end }
+          },
+          Some(lt) => {
+            let updated = set_trailing(lt, lt.trailingTrivia ++ leading ++ [nl]);
+            #{ committed: acc.committed, last: Some(updated), prev_end: tok_end }
+          }
+        }
+      },
+      _ => {
+        let new_committed = match acc.last {
+          Some(lt) => acc.committed ++ [lt],
+          None => acc.committed
+        };
+        let new_tok = #{ tokenKind: tok.type_, text: tok.lexeme, leadingTrivia: leading,
+                         trailingTrivia: [], loc: tok.loc };
+        #{ committed: new_committed, last: Some(new_tok), prev_end: tok_end }
+      }
+    }
+  });
+
+  // attach trailing source after the last token, then commit the last token
+  let total_len = length(source);
+  match final.last {
+    None => final.committed,
+    Some(lt) => {
+      let lt2 = if final.prev_end < total_len {
+        set_trailing(lt, lt.trailingTrivia ++ classify_trivia(substring(source, final.prev_end, total_len), file, final.prev_end))
+      } else {
+        lt
+      };
+      final.committed ++ [lt2]
+    }
+  }
+}
+
+// ---- public API ----
+
+pub fn parse_to_cst(source: String, file: String, run_number: Int) -> CstTree {
+  let cst_tokens = lex_with_trivia(source, file, run_number);
+  let children = map(cst_tokens, |tok| NodeToken(tok));
+  let n = len(cst_tokens);
+  let loc = if n == 0 {
+    mk_loc(0, 0, file)
+  } else {
+    #{ start: cst_tokens[0].loc.start, end_: cst_tokens[n - 1].loc.end_, file: file }
+  };
+  #{ kind: SourceFile, children: children, loc: loc }
+}
