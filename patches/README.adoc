@@ -1,12 +1,20 @@
-// SPDX-License-Identifier: CC-BY-SA-4.0
+// SPDX-License-Identifier: MPL-2.0
 // Copyright (c) 2026 Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 = AffineScript toolchain patches
 :toc:
 
-Patches applied to a fresh `hyperpolymath/affinescript` checkout by
-`scripts/install-affinescript-toolchain.sh` before building the compiler, to
-support the ReScript -> AffineScript migration. Each is a stop-gap pending
-upstream; drop it from the install script once upstreamed.
+Patches against a fresh `hyperpolymath/affinescript` checkout, produced during
+the ReScript -> AffineScript migration when `affinescript` was outside the
+session's repo scope (so they could not be pushed upstream directly).
+
+* `affinescript-module-struct-fields.patch` is *applied automatically* by
+  `scripts/install-affinescript-toolchain.sh` before building the compiler
+  (the migration needs it to build).
+* `affinescript-dom-licensing.patch` is a *standalone, manually-applied* patch
+  (repo licensing metadata — not needed to build). Apply it to an `affinescript`
+  checkout you can push, then open a PR upstream.
+
+Each is a stop-gap pending upstream; drop it once upstreamed.
 
 == affinescript-module-struct-fields.patch
 
