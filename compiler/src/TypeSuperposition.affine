@@ -1,0 +1,323 @@
+// SPDX-License-Identifier: MPL-2.0
+// TypeSuperposition.affine — quantum type system (ported from
+// compiler/src/TypeSuperposition.res).
+//
+// "Variables exist in multiple types simultaneously until observed
+// (printed, used in arithmetic, compared, …)." Observation collapses the
+// superposition deterministically (context-hash + seed indexes the
+// possible-types array).
+//
+// ── AffineScript port conventions ──
+//   * `open Types` -> `use Types::*;`. The `typeExpr` constructors
+//     TyInt/TyFloat/TyString/TyBool/TyArray/… come from the `Types`
+//     module unchanged (they are global constructors of `TypeExpr`), so
+//     the quantum machinery reuses them directly.
+//   * ReScript inline-record variant `Superposition({possibleTypes, seed,
+//     declaredAt})` -> positional `Superposition([TypeExpr], Int,
+//     Location)`. `quantumVariable` is a struct (no mutable fields); the
+//     "update on observe" rebuilds the whole record.
+//   * `detectSuperposition` mutates a `quantumVars` array in ReScript; here
+//     the recursion threads an accumulator `[(String, QuantumVariable)]`
+//     through fold/helper calls and returns the grown list (immutable).
+//   * `Array.length(possibleTypes)` -> `len(...)`; `arr->Option.getOr(d)`
+//     -> indexed read with an explicit bounds guard (`arr[i]` is the
+//     builtin indexer); `mod` -> `%`.
+//
+// ── Faithfulness notes: documented gaps / simplifications vs the .res ──
+//   * Collapse arithmetic, context hashing, and the per-literal
+//     possible-type sets are reproduced exactly (same constants, same
+//     order, same TyInt default).
+//   * `quantumType` field on `quantumVariable` is renamed to `qtype`
+//     (struct fields and a same-named outer type would otherwise read
+//     ambiguously); purely a local rename, semantics identical.
+//   * No `runTests`/Console code exists in the .res, so nothing is omitted.
+
+module TypeSuperposition;
+
+use prelude::*;
+use string::{join};
+use Types::*;
+
+// ============================================
+// Quantum type states
+// ============================================
+
+// ReScript: Collapsed(typeExpr) | Superposition({possibleTypes, seed, declaredAt})
+pub enum QuantumType {
+  Collapsed(TypeExpr),
+  Superposition([TypeExpr], Int, Location)
+}
+
+// Type observation contexts
+pub enum ObservationContext {
+  Arithmetic,   // Used in +, -, *, /
+  StringOp,     // Used in ++, interpolation
+  Comparison,   // Used in ==, !=, <, >
+  Print,        // Used in println
+  Assignment,   // Assigned to typed variable
+  FunctionArg   // Passed to typed parameter
+}
+
+// Variable with quantum type state.
+// `qtype` mirrors the .res field `quantumType`; `observedAt` keeps the
+// (location, context) pair as in the source.
+pub struct QuantumVariable {
+  name: String,
+  qtype: QuantumType,
+  observedAt: Option<(Location, ObservationContext)>,
+  declaredAt: Location
+}
+
+// ============================================
+// Possible types for a literal
+// ============================================
+
+// Determine possible types for a literal based on its form.
+pub fn possible_types_for_literal(e: Expr) -> [TypeExpr] {
+  match e {
+    // Integer literal could be Int, Float (via coercion), or String.
+    IntLit(_n, _loc) => [TyInt, TyFloat, TyString],
+    // Float could be Float or String.
+    FloatLit(_f, _loc) => [TyFloat, TyString],
+    // String is always String (but might be coercible to Int/Float).
+    StringLit(_s, _loc) => [TyString, TyInt, TyFloat],
+    // Bool could be Bool, Int (0/1), or String.
+    BoolLit(_b, _loc) => [TyBool, TyInt, TyString],
+    // Unknown expression — full superposition.
+    _ => [TyInt, TyFloat, TyString, TyBool]
+  }
+}
+
+// ============================================
+// Collapse
+// ============================================
+
+// Context -> deterministic hash contribution (mirrors the .res switch).
+fn context_hash(context: ObservationContext) -> Int {
+  match context {
+    Arithmetic => 0,
+    StringOp => 1,
+    Comparison => 2,
+    Print => 3,
+    Assignment => 4,
+    FunctionArg => 5
+  }
+}
+
+// Collapse a quantum type given an observation context and seed.
+// Collapse is deterministic but depends on context, seed, and the
+// variable's own seed; the index wraps modulo the possible-type count.
+pub fn collapse_type(qt: QuantumType, context: ObservationContext, seed: Int) -> TypeExpr {
+  match qt {
+    Collapsed(t) => t,  // Already collapsed.
+    Superposition(possible_types, var_seed, _declared) => {
+      let ch = context_hash(context);
+      let n = len(possible_types);
+      // `mod 0` is undefined; the .res relies on non-empty possibleTypes.
+      // Guard defensively, defaulting to TyInt (the .res getOr default).
+      if n == 0 {
+        TyInt
+      } else {
+        let hash = (var_seed + seed + ch) % n;
+        if hash >= 0 && hash < n {
+          possible_types[hash]
+        } else {
+          TyInt
+        }
+      }
+    }
+  }
+}
+
+// Check if an observation would cause a type mismatch.
+pub fn would_cause_mismatch(
+  qt: QuantumType,
+  context: ObservationContext,
+  expected_type: TypeExpr,
+  seed: Int
+) -> Bool {
+  let collapsed = collapse_type(qt, context, seed);
+  collapsed != expected_type
+}
+
+// ============================================
+// Construction & observation
+// ============================================
+
+// Create a quantum variable from a let statement.
+pub fn create_quantum_variable(
+  name: String,
+  value: Expr,
+  type_annotation: Option<TypeExpr>,
+  loc: Location,
+  seed: Int
+) -> QuantumVariable {
+  let qt = match type_annotation {
+    // Explicit type annotation — collapsed from the start.
+    Some(annotated) => Collapsed(annotated),
+    // No type annotation — quantum superposition!
+    None => {
+      let possible_types = possible_types_for_literal(value);
+      Superposition(possible_types, seed, loc)
+    }
+  };
+  #{ name: name, qtype: qt, observedAt: None, declaredAt: loc }
+}
+
+// Observe a quantum variable (collapse its type). Returns the updated
+// variable paired with the collapsed type (Some unless somehow absent).
+pub fn observe_variable(
+  qvar: QuantumVariable,
+  context: ObservationContext,
+  observe_loc: Location,
+  seed: Int
+) -> (QuantumVariable, Option<TypeExpr>) {
+  match qvar.qtype {
+    // Already collapsed — just return it.
+    Collapsed(t) => (qvar, Some(t)),
+    // COLLAPSE THE WAVEFUNCTION!
+    Superposition(possible_types, var_seed, declared) => {
+      let collapsed = collapse_type(Superposition(possible_types, var_seed, declared), context, seed);
+      let updated = #{
+        name: qvar.name,
+        qtype: Collapsed(collapsed),
+        observedAt: Some((observe_loc, context)),
+        declaredAt: qvar.declaredAt
+      };
+      (updated, Some(collapsed))
+    }
+  }
+}
+
+// ============================================
+// Superposition detection over a program
+// ============================================
+
+// Whether a quantum variable is (still) in superposition.
+fn is_superposed(qt: QuantumType) -> Bool {
+  match qt {
+    Superposition(_p, _s, _d) => true,
+    _ => false
+  }
+}
+
+// Analyze a single statement, growing the accumulator of detected quantum
+// variables. Only `let` without a type annotation introduces a quantum
+// variable; if/elseif/else bodies are descended into.
+fn analyze_stmt(acc: [(String, QuantumVariable)], seed: Int, stmt: Stmt) -> [(String, QuantumVariable)] {
+  match stmt {
+    LetStmt(_mutable, name, type_, value, loc) =>
+      match type_ {
+        None => {
+          let qvar = create_quantum_variable(name, value, type_, loc, seed);
+          if is_superposed(qvar.qtype) {
+            acc ++ [(name, qvar)]
+          } else {
+            acc
+          }
+        },
+        Some(_t) => acc
+      },
+    IfStmt(_cond, then_, elseifs, else_, _loc) => {
+      let a1 = analyze_stmts(acc, seed, then_);
+      let a2 = fold(elseifs, a1, |a, pair| {
+        let (_eif_cond, body) = pair;
+        analyze_stmts(a, seed, body)
+      });
+      match else_ {
+        Some(body) => analyze_stmts(a2, seed, body),
+        None => a2
+      }
+    },
+    _ => acc
+  }
+}
+
+fn analyze_stmts(acc: [(String, QuantumVariable)], seed: Int, stmts: [Stmt]) -> [(String, QuantumVariable)] {
+  fold(stmts, acc, |a, s| analyze_stmt(a, seed, s))
+}
+
+// Analyze a declaration: only main-block and function bodies contain
+// statements to scan.
+fn analyze_decl(acc: [(String, QuantumVariable)], seed: Int, decl: Decl) -> [(String, QuantumVariable)] {
+  match decl {
+    MainBlock(body, _loc) => analyze_stmts(acc, seed, body),
+    FunctionDecl(_name, _params, _ret, body, _loc) => analyze_stmts(acc, seed, body),
+    _ => acc
+  }
+}
+
+// Detect type-superposition paradoxes in a program.
+pub fn detect_superposition(prog: Program, seed: Int) -> [(String, QuantumVariable)] {
+  fold(prog.declarations, [], |acc, decl| analyze_decl(acc, seed, decl))
+}
+
+// ============================================
+// Display
+// ============================================
+
+// Render a single typeExpr to its short name (mirrors the inner switch).
+fn type_name(t: TypeExpr) -> String {
+  match t {
+    TyInt => "Int",
+    TyFloat => "Float",
+    TyString => "String",
+    TyBool => "Bool",
+    _ => "Unknown"
+  }
+}
+
+// Format a quantum type for display.
+pub fn format_quantum_type(qt: QuantumType) -> String {
+  match qt {
+    Collapsed(t) => type_name(t),
+    Superposition(possible_types, _s, _d) =>
+      join(map(possible_types, type_name), " | ")
+  }
+}
+
+// ============================================
+// Prediction & visualization
+// ============================================
+
+// Predict the collapse target and supply a human reason for it.
+pub fn predict_collapse(
+  qt: QuantumType,
+  context: ObservationContext,
+  seed: Int
+) -> (TypeExpr, String) {
+  let collapsed = collapse_type(qt, context, seed);
+  let reason = match context {
+    Arithmetic => "Used in arithmetic operation",
+    StringOp => "Used in string operation",
+    Comparison => "Used in comparison",
+    Print => "Printed to console",
+    Assignment => "Assigned to typed variable",
+    FunctionArg => "Passed as function argument"
+  };
+  (collapsed, reason)
+}
+
+// Generate a visualization of a type collapse.
+pub fn visualize_collapse(
+  var_name: String,
+  before: QuantumType,
+  after: TypeExpr,
+  context: ObservationContext
+) -> String {
+  let before_str = format_quantum_type(before);
+  let after_str = format_quantum_type(Collapsed(after));
+  let context_str = match context {
+    Arithmetic => "arithmetic",
+    StringOp => "string operation",
+    Comparison => "comparison",
+    Print => "println",
+    Assignment => "assignment",
+    FunctionArg => "function call"
+  };
+  "\n🌀 TYPE COLLAPSE DETECTED\n\nVariable: " ++ var_name
+    ++ "\nBefore:   " ++ before_str ++ " (superposition)"
+    ++ "\nAfter:    " ++ after_str ++ " (collapsed)"
+    ++ "\nContext:  " ++ context_str
+    ++ "\n\nThe act of observation collapsed the type!\n"
+}

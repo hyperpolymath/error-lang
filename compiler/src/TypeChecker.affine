@@ -1,0 +1,1123 @@
+// SPDX-License-Identifier: MPL-2.0
+// TypeChecker.affine — static type checker for Error-Lang
+// (ported from compiler/src/TypeChecker.res).
+//
+// Typing rules (unchanged from the .res):
+//   - `let x = expr` — infer type from expr
+//   - `let x: Type = expr` — check expr against Type
+//   - `mutable` variables can be reassigned (same type only)
+//   - `if/elseif/else` — condition must be Bool, branches checked in nested scopes
+//   - `while` — condition must be Bool
+//   - `for x in expr` — expr must be Array
+//   - `function` — standard arrow type
+//   - `gutter` blocks — skip type checking (error injection zone)
+//   - `print/println` — accept any type
+//   - Operators: arithmetic on Int/Float, comparison returns Bool, logical on Bool
+//
+// ── AffineScript port: state model ──
+// The ReScript checker mutates a shared `env` (mutable `nextVar`, a shared
+// `Dict<int, ty>` of substitutions) and a mutable `checkResult.errors`
+// array, all in place. AffineScript has no mutable struct fields / record
+// spread, so:
+//   * The unification "globals" — fresh-var counter, substitution map, and
+//     accumulated errors — live in a single immutable `CheckState` that is
+//     THREADED through every function (`(result, CheckState)` tuples;
+//     callers `let (x, st) = f(st, ...);`). Because they live in one
+//     threaded value they are automatically shared exactly as the .res's
+//     parent-linked env shared them — so the .res's explicit
+//     "propagate state back" after a lambda becomes a no-op here.
+//   * The lexical environment (the .res `env.bindings` + `parent` chain) is
+//     a frame STACK `[[ (String, Binding) ]]` (head = innermost scope).
+//     `extend` pushes an empty frame; `bind` extends the head frame;
+//     `lookup` searches head→tail. Statements that bind (`let`, `for`,
+//     params) return the updated frame stack so later siblings see them.
+//   * The substitution map is `Int`-keyed, but stdlib `dict` is
+//     String-keyed; a tiny assoc-list `[(Int, Ty)]` with linear get/set is
+//     used instead (the same purely-functional style as stdlib `dict`).
+//
+// ── Internal type representation ──
+// The .res internal `ty` constructors are named `TyInt`/`TyFloat`/… which
+// would COLLIDE with the global `TypeExpr` constructors of the same name in
+// `Types.affine` (constructor names are global in AffineScript). They are
+// therefore prefixed `C` (for "check"): CInt/CFloat/CString/CBool/CNil/
+// CArray/CFun/CStruct/CEcho/CEchoR/CAny/CVar. The mapping is 1:1 with the
+// .res `ty`; only the spelling changes. The `Types::TypeExpr` constructors
+// (TyInt, TyArray, TyEcho, TyEchoResidue, TyIdent) are used unprefixed when
+// translating annotations.
+//
+// ── Faithfulness notes: documented gaps / simplifications vs the .res ──
+//   * Echo / EchoR unification is reproduced EXACTLY: same-kind structural
+//     unification only; Echo<_,_> deliberately does NOT unify with
+//     EchoR<_,_> (irreversibility of erasure). The [Stab-Erase] residue
+//     rules in `infer_echo_builtin` (echo / echo_to_residue /
+//     residue_strictly_loses / echo_input / echo_output) match the .res
+//     arm-for-arm, including the "echo_input on a residue is illegal"
+//     diagnostic and "echo_output retained by both Echo and residue".
+//   * The standalone `exprLoc` helper of the .res is OMITTED. It existed
+//     only to recover an error location from an expression the checker was
+//     about to consume — a use-and-consume that is awkward under affine
+//     ownership. Instead `infer_expr` RETURNS the expression's own
+//     `Location` (a copyable summary) alongside the inferred type, so every
+//     error already has the precise location without re-traversing a moved
+//     node. Behaviour is identical (same locations attached to the same
+//     diagnostics). The thin wrapper `infer` drops the location for the
+//     majority of callers that ignore it.
+//   * `Array.getUnsafe(0)` / `sliceToEnd(~start=1)` -> head/tail via
+//     indexing (`xs[0]`, `xs[1:]`); `Array.zip(a,b)->Array.every(f)` and
+//     `->Array.forEach` over a state-mutating body become explicit
+//     state-threading folds (`unify_lists`, `*_list` helpers) since the
+//     callbacks mutate the shared substitution/error state.
+//   * Empty-array element type uses a fresh var exactly as the .res.
+//   * No `runTests`/Console code exists in the .res, so nothing is omitted.
+
+module TypeChecker;
+
+use prelude::*;
+use string::{join};
+use Types::*;
+
+// ============================================
+// Internal Type Representation (`ty` in the .res; C-prefixed here)
+// ============================================
+
+pub enum Ty {
+  CInt,
+  CFloat,
+  CString,
+  CBool,
+  CNil,
+  CArray(Ty),
+  CFun([Ty], Ty),
+  CStruct(String),
+  // Echo<A, B> — fiber / retained-loss witness type (domain A, codomain B).
+  CEcho(Ty, Ty),
+  // EchoR<A, B> — residue: the A-witness has been erased (non-recoverable).
+  // Deliberately does NOT unify with CEcho.
+  CEchoR(Ty, Ty),
+  CAny,
+  CVar(Int)
+}
+
+// ============================================
+// Bindings / scopes / threaded state
+// ============================================
+
+pub struct Binding {
+  ty: Ty,
+  mutable_: Bool
+}
+
+// One lexical frame is an assoc list of name -> binding.
+// The environment is a stack of frames (head = innermost).
+
+pub struct TypeError {
+  message: String,
+  loc: Location
+}
+
+// The threaded unification + error state (the .res's shared env globals +
+// checkResult.errors, all in one immutable value).
+pub struct CheckState {
+  nextVar: Int,
+  subs: [(Int, Ty)],
+  errors: [TypeError]
+}
+
+pub fn make_state() -> CheckState {
+  #{ nextVar: 0, subs: [], errors: [] }
+}
+
+fn add_error(st: CheckState, message: String, loc: Location) -> CheckState {
+  #{ nextVar: st.nextVar, subs: st.subs,
+     errors: st.errors ++ [#{ message: message, loc: loc }] }
+}
+
+fn fresh_var(st: CheckState) -> (Ty, CheckState) {
+  let id = st.nextVar;
+  let st2 = #{ nextVar: st.nextVar + 1, subs: st.subs, errors: st.errors };
+  (CVar(id), st2)
+}
+
+// ---- substitution map (Int-keyed assoc list; last-write-wins) ----
+
+fn subs_get(st: CheckState, id: Int) -> Option<Ty> {
+  let mut out = None;
+  let mut found = false;
+  for pair in st.subs {
+    let (k, v) = pair;
+    if !found && k == id {
+      out = Some(v);
+      found = true;
+    }
+  }
+  out
+}
+
+fn subs_set(st: CheckState, id: Int, t: Ty) -> CheckState {
+  let mut rest = [];
+  for pair in st.subs {
+    let (k, v) = pair;
+    if k != id {
+      rest = rest ++ [(k, v)];
+    }
+  }
+  #{ nextVar: st.nextVar, subs: [(id, t)] ++ rest, errors: st.errors }
+}
+
+// ---- scopes ----
+
+fn empty_scopes() -> [[(String, Binding)]] {
+  [[]]
+}
+
+// Push a fresh innermost frame.
+fn extend(scopes: [[(String, Binding)]]) -> [[(String, Binding)]] {
+  [[]] ++ scopes
+}
+
+// Extend the innermost frame with a new binding (shadowing-friendly: the
+// new pair is prepended so lookups find it first).
+fn bind(scopes: [[(String, Binding)]], name: String, ty: Ty, mutable_: Bool) -> [[(String, Binding)]] {
+  let n = len(scopes);
+  if n == 0 {
+    [[(name, #{ ty: ty, mutable_: mutable_ })]]
+  } else {
+    let head = scopes[0];
+    let new_head = [(name, #{ ty: ty, mutable_: mutable_ })] ++ head;
+    [new_head] ++ scopes[1:]
+  }
+}
+
+fn lookup_frame(frame: [(String, Binding)], name: String) -> Option<Binding> {
+  let mut out = None;
+  let mut found = false;
+  for pair in frame {
+    let (k, b) = pair;
+    if !found && k == name {
+      out = Some(b);
+      found = true;
+    }
+  }
+  out
+}
+
+fn lookup_var(scopes: [[(String, Binding)]], name: String) -> Option<Binding> {
+  let mut out = None;
+  let mut found = false;
+  for frame in scopes {
+    if !found {
+      match lookup_frame(frame, name) {
+        Some(b) => { out = Some(b); found = true; },
+        None => {}
+      }
+    }
+  }
+  out
+}
+
+// ============================================
+// AST Type -> Internal Type
+// ============================================
+
+pub fn type_expr_to_ty(te: TypeExpr) -> Ty {
+  match te {
+    TyInt => CInt,
+    TyFloat => CFloat,
+    TyString => CString,
+    TyBool => CBool,
+    TyArray(inner) => CArray(type_expr_to_ty(inner)),
+    TyEcho(a, b) => CEcho(opt_type_expr_to_ty(a), opt_type_expr_to_ty(b)),
+    TyEchoResidue(a, b) => CEchoR(opt_type_expr_to_ty(a), opt_type_expr_to_ty(b)),
+    TyIdent(name) => CStruct(name)
+  }
+}
+
+// An omitted Echo type argument (`Echo<A>` or bare `Echo`) is treated as
+// `Any`, which unifies with everything.
+fn opt_type_expr_to_ty(o: Option<TypeExpr>) -> Ty {
+  match o {
+    Some(t) => type_expr_to_ty(t),
+    None => CAny
+  }
+}
+
+// ============================================
+// Type Display
+// ============================================
+
+pub fn ty_to_string(t: Ty) -> String {
+  match t {
+    CInt => "Int",
+    CFloat => "Float",
+    CString => "String",
+    CBool => "Bool",
+    CNil => "Nil",
+    CArray(inner) => "Array<" ++ ty_to_string(inner) ++ ">",
+    CFun(params, ret) => {
+      let param_str = join(map(params, ty_to_string), ", ");
+      "(" ++ param_str ++ ") -> " ++ ty_to_string(ret)
+    },
+    CStruct(name) => name,
+    CEcho(a, b) => "Echo<" ++ ty_to_string(a) ++ ", " ++ ty_to_string(b) ++ ">",
+    CEchoR(a, b) => "EchoR<" ++ ty_to_string(a) ++ ", " ++ ty_to_string(b) ++ ">",
+    CAny => "Any",
+    CVar(id) => "?" ++ int_to_string(id)
+  }
+}
+
+// ============================================
+// Unification
+// ============================================
+
+// Resolve a type through the substitution map (read-only; threads no state).
+pub fn resolve(st: CheckState, t: Ty) -> Ty {
+  match t {
+    CVar(id) =>
+      match subs_get(st, id) {
+        Some(resolved) => resolve(st, resolved),
+        None => CVar(id)
+      },
+    CArray(inner) => CArray(resolve(st, inner)),
+    CFun(params, ret) => CFun(map(params, |p| resolve(st, p)), resolve(st, ret)),
+    CEcho(a, b) => CEcho(resolve(st, a), resolve(st, b)),
+    CEchoR(a, b) => CEchoR(resolve(st, a), resolve(st, b)),
+    _ => t
+  }
+}
+
+// Unify two types, possibly extending the substitution map. Returns
+// (success, new_state).
+pub fn unify(st: CheckState, a0: Ty, b0: Ty) -> (Bool, CheckState) {
+  let a = resolve(st, a0);
+  let b = resolve(st, b0);
+  match (a, b) {
+    (CAny, _) => (true, st),
+    (_, CAny) => (true, st),
+    (CNil, _) => (true, st),
+    (_, CNil) => (true, st),
+    (CInt, CInt) => (true, st),
+    (CFloat, CFloat) => (true, st),
+    (CString, CString) => (true, st),
+    (CBool, CBool) => (true, st),
+    (CVar(id), other) => (true, subs_set(st, id, other)),
+    (other, CVar(id)) => (true, subs_set(st, id, other)),
+    (CArray(ia), CArray(ib)) => unify(st, ia, ib),
+    (CStruct(na), CStruct(nb)) => (na == nb, st),
+    // Echo and EchoR unify structurally with their own kind only. Echo<_,_>
+    // does NOT unify with EchoR<_,_>: once a witness is erased the residue
+    // cannot be passed where a recoverable Echo is required.
+    (CEcho(a1, b1), CEcho(a2, b2)) => {
+      let (ok1, st1) = unify(st, a1, a2);
+      if ok1 {
+        let (ok2, st2) = unify(st1, b1, b2);
+        (ok2, st2)
+      } else {
+        (false, st1)
+      }
+    },
+    (CEchoR(a1, b1), CEchoR(a2, b2)) => {
+      let (ok1, st1) = unify(st, a1, a2);
+      if ok1 {
+        let (ok2, st2) = unify(st1, b1, b2);
+        (ok2, st2)
+      } else {
+        (false, st1)
+      }
+    },
+    (CFun(pa, ra), CFun(pb, rb)) =>
+      if len(pa) != len(pb) {
+        (false, st)
+      } else {
+        let (params_ok, st1) = unify_lists(st, pa, pb);
+        if params_ok {
+          unify(st1, ra, rb)
+        } else {
+          (false, st1)
+        }
+      },
+    _ => (false, st)
+  }
+}
+
+// Unify two equal-length type lists pairwise, threading state and ANDing
+// success (the .res `Array.zip(pa,pb)->Array.every(unify)`).
+fn unify_lists(st: CheckState, xs: [Ty], ys: [Ty]) -> (Bool, CheckState) {
+  let n = len(xs);
+  let mut i = 0;
+  let mut ok = true;
+  let mut state = st;
+  while i < n {
+    let (one_ok, s2) = unify(state, xs[i], ys[i]);
+    state = s2;
+    if !one_ok { ok = false; }
+    i = i + 1;
+  }
+  (ok, state)
+}
+
+// Numeric widening: Int can widen to Float.
+fn is_numeric(t: Ty) -> Bool {
+  match t {
+    CInt => true,
+    CFloat => true,
+    _ => false
+  }
+}
+
+fn widen_numeric(a: Ty, b: Ty) -> Ty {
+  match (a, b) {
+    (CFloat, _) => CFloat,
+    (_, CFloat) => CFloat,
+    _ => CInt
+  }
+}
+
+// ============================================
+// Echo Builtins
+// ============================================
+
+// Runtime operations over Echo types (mirroring EchoTypes.jl):
+//   echo(x, y)                : (A, B) -> Echo<A, B>
+//   echo_to_residue(e)        : Echo<A, B> -> EchoR<A, B>   (erases witness)
+//   residue_strictly_loses(r) : EchoR<A, B> -> Bool
+//   echo_input(e)             : Echo<A, B> -> A             (illegal on residue)
+//   echo_output(e)            : Echo<A,B> | EchoR<A,B> -> B
+fn is_echo_builtin(name: String) -> Bool {
+  name == "echo" || name == "echo_to_residue" || name == "residue_strictly_loses"
+    || name == "echo_input" || name == "echo_output"
+}
+
+// ============================================
+// Expression Type Inference
+//
+// `infer_expr` returns (ty, Location, CheckState): the inferred type, the
+// expression's own location (copyable — replaces the .res `exprLoc`), and
+// the threaded state. `infer` is the location-dropping wrapper most callers
+// use. Scopes are read-only here (expressions never bind), so they are
+// passed by value (cloned into recursive calls).
+// ============================================
+
+fn infer(st: CheckState, scopes: [[(String, Binding)]], e: Expr) -> (Ty, CheckState) {
+  let (t, _loc, st2) = infer_expr(st, scopes, e);
+  (t, st2)
+}
+
+fn infer_expr(st: CheckState, scopes: [[(String, Binding)]], e: Expr) -> (Ty, Location, CheckState) {
+  match e {
+    IntLit(_n, loc) => (CInt, loc, st),
+    FloatLit(_f, loc) => (CFloat, loc, st),
+    StringLit(_s, loc) => (CString, loc, st),
+    BoolLit(_b, loc) => (CBool, loc, st),
+    NilLit(loc) => (CNil, loc, st),
+
+    Ident(name, loc) =>
+      match lookup_var(scopes, name) {
+        Some(b) => (b.ty, loc, st),
+        None => {
+          let st2 = add_error(st, "Undefined variable '" ++ name ++ "'", loc);
+          (CAny, loc, st2)
+        }
+      },
+
+    Array(elements, loc) =>
+      if len(elements) == 0 {
+        let (fv, st2) = fresh_var(st);
+        (CArray(fv), loc, st2)
+      } else {
+        let (elem_ty, st_head) = infer(st, scopes, elements[0]);
+        let rest = elements[1:];
+        let (final_elem, st_rest) = infer_array_rest(st_head, scopes, elem_ty, rest);
+        (CArray(resolve(st_rest, final_elem)), loc, st_rest)
+      },
+
+    Binary(left, op, right, loc) => {
+      let (t, st2) = infer_binary_op(st, scopes, left, op, right, loc);
+      (t, loc, st2)
+    },
+
+    Unary(op, operand, loc) => {
+      let (t, st2) = infer_unary_op(st, scopes, op, operand, loc);
+      (t, loc, st2)
+    },
+
+    Call(callee, args, loc) =>
+      match callee {
+        Ident(name, id_loc) =>
+          if is_echo_builtin(name) {
+            let (t, st2) = infer_echo_builtin(st, scopes, name, args, loc);
+            (t, loc, st2)
+          } else {
+            let (t, st2) = infer_call(st, scopes, Ident(name, id_loc), args, loc);
+            (t, loc, st2)
+          },
+        _ => {
+          let (t, st2) = infer_call(st, scopes, callee, args, loc);
+          (t, loc, st2)
+        }
+      },
+
+    Index(base, idx, loc) => {
+      let (base_ty, st1) = infer(st, scopes, base);
+      let (idx_ty, st2) = infer(st1, scopes, idx);
+      let (ok, st3) = unify(st2, idx_ty, CInt);
+      let st4 = if !ok {
+        add_error(st3, "Array index must be Int, got " ++ ty_to_string(idx_ty), loc)
+      } else {
+        st3
+      };
+      match resolve(st4, base_ty) {
+        CArray(elem_ty) => (elem_ty, loc, st4),
+        CAny => (CAny, loc, st4),
+        other => {
+          let st5 = add_error(st4, "Cannot index non-array type " ++ ty_to_string(other), loc);
+          (CAny, loc, st5)
+        }
+      }
+    },
+
+    Member(base, _field, loc) => {
+      // Struct field access requires a type database; return Any for now.
+      let (_bt, st2) = infer(st, scopes, base);
+      (CAny, loc, st2)
+    },
+
+    Ternary(cond, then_expr, else_expr, loc) => {
+      let (cond_ty, st1) = infer(st, scopes, cond);
+      let (ok_c, st2) = unify(st1, cond_ty, CBool);
+      let st3 = if !ok_c {
+        add_error(st2, "Ternary condition must be Bool, got " ++ ty_to_string(cond_ty), loc)
+      } else {
+        st2
+      };
+      let (then_ty, st4) = infer(st3, scopes, then_expr);
+      let (else_ty, st5) = infer(st4, scopes, else_expr);
+      let (ok_b, st6) = unify(st5, then_ty, else_ty);
+      let st7 = if !ok_b {
+        add_error(st6,
+          "Ternary branches have different types: " ++ ty_to_string(then_ty) ++ " vs " ++ ty_to_string(else_ty),
+          loc)
+      } else {
+        st6
+      };
+      (resolve(st7, then_ty), loc, st7)
+    },
+
+    Lambda(params, ret_ann, body, loc) => {
+      let lambda_scopes = extend(scopes);
+      let (param_tys, scopes2, st1) = bind_lambda_params(st, lambda_scopes, params);
+      let (body_ty, st2) = match body {
+        LambdaExpr(expr) => infer(st1, scopes2, expr),
+        LambdaBlock(stmts) => check_stmts(st1, scopes2, stmts)
+      };
+      let st3 = match ret_ann {
+        Some(ann) => {
+          let ann_ty = type_expr_to_ty(ann);
+          let (ok, sa) = unify(st2, body_ty, ann_ty);
+          if !ok {
+            add_error(sa,
+              "Lambda return type mismatch: declared " ++ ty_to_string(ann_ty) ++ ", body is " ++ ty_to_string(body_ty),
+              loc)
+          } else {
+            sa
+          }
+        },
+        None => st2
+      };
+      (CFun(param_tys, resolve(st3, body_ty)), loc, st3)
+    }
+  }
+}
+
+// Fold the tail of an array literal, unifying each element type with the
+// head element type and threading state (the .res `sliceToEnd(1)->forEach`).
+fn infer_array_rest(st: CheckState, scopes: [[(String, Binding)]], elem_ty: Ty, rest: [Expr]) -> (Ty, CheckState) {
+  let n = len(rest);
+  let mut i = 0;
+  let mut state = st;
+  while i < n {
+    let (t, loc, s2) = infer_expr(state, scopes, rest[i]);
+    let (ok, s3) = unify(s2, elem_ty, t);
+    state = if !ok {
+      add_error(s3,
+        "Array element type mismatch: expected " ++ ty_to_string(elem_ty) ++ ", got " ++ ty_to_string(t),
+        loc)
+    } else {
+      s3
+    };
+    i = i + 1;
+  }
+  (elem_ty, state)
+}
+
+// Bind lambda params (each typed-or-fresh, mutable_=false), returning their
+// types in order, the extended scopes, and threaded state.
+fn bind_lambda_params(st: CheckState, scopes: [[(String, Binding)]], params: [Param]) -> ([Ty], [[(String, Binding)]], CheckState) {
+  let n = len(params);
+  let mut i = 0;
+  let mut tys = [];
+  let mut sc = scopes;
+  let mut state = st;
+  while i < n {
+    let p = params[i];
+    let (ty, s2) = match p.type_ {
+      Some(te) => (type_expr_to_ty(te), state),
+      None => fresh_var(state)
+    };
+    sc = bind(sc, p.name, ty, false);
+    tys = tys ++ [ty];
+    state = s2;
+    i = i + 1;
+  }
+  (tys, sc, state)
+}
+
+// Non-echo call inference (the .res Call(callee, args) arm).
+fn infer_call(st: CheckState, scopes: [[(String, Binding)]], callee: Expr, args: [Expr], loc: Location) -> (Ty, CheckState) {
+  let (callee_ty, st1) = infer(st, scopes, callee);
+  match resolve(st1, callee_ty) {
+    CFun(param_tys, ret_ty) =>
+      if len(args) != len(param_tys) {
+        let st2 = add_error(st1,
+          "Function expects " ++ int_to_string(len(param_tys)) ++ " arguments, got " ++ int_to_string(len(args)),
+          loc);
+        (ret_ty, st2)
+      } else {
+        let st2 = check_args(st1, scopes, args, param_tys);
+        (ret_ty, st2)
+      },
+    CAny => (CAny, st1),
+    other => {
+      let st2 = add_error(st1, "Cannot call non-function type " ++ ty_to_string(other), loc);
+      (CAny, st2)
+    }
+  }
+}
+
+// Check each argument against its parameter type, threading state.
+fn check_args(st: CheckState, scopes: [[(String, Binding)]], args: [Expr], param_tys: [Ty]) -> CheckState {
+  let n = len(args);
+  let mut i = 0;
+  let mut state = st;
+  while i < n {
+    let (arg_ty, loc, s2) = infer_expr(state, scopes, args[i]);
+    let pty = param_tys[i];
+    let (ok, s3) = unify(s2, arg_ty, pty);
+    state = if !ok {
+      add_error(s3,
+        "Argument type mismatch: expected " ++ ty_to_string(pty) ++ ", got " ++ ty_to_string(arg_ty),
+        loc)
+    } else {
+      s3
+    };
+    i = i + 1;
+  }
+  state
+}
+
+fn infer_binary_op(
+  st: CheckState,
+  scopes: [[(String, Binding)]],
+  left: Expr,
+  op: BinaryOp,
+  right: Expr,
+  loc: Location
+) -> (Ty, CheckState) {
+  let (lt, st1) = infer(st, scopes, left);
+  let (rt, st2) = infer(st1, scopes, right);
+  let lt_r = resolve(st2, lt);
+  let rt_r = resolve(st2, rt);
+
+  match op {
+    // Arithmetic
+    Add => arith_op(st2, op, lt_r, rt_r, loc),
+    Sub => arith_op(st2, op, lt_r, rt_r, loc),
+    Mul => arith_op(st2, op, lt_r, rt_r, loc),
+    Div => arith_op(st2, op, lt_r, rt_r, loc),
+    Mod => arith_op(st2, op, lt_r, rt_r, loc),
+
+    // Comparison
+    Eq => cmp_op(st2, lt, rt, lt_r, rt_r, loc),
+    Neq => cmp_op(st2, lt, rt, lt_r, rt_r, loc),
+    Lt => cmp_op(st2, lt, rt, lt_r, rt_r, loc),
+    Gt => cmp_op(st2, lt, rt, lt_r, rt_r, loc),
+    Lte => cmp_op(st2, lt, rt, lt_r, rt_r, loc),
+    Gte => cmp_op(st2, lt, rt, lt_r, rt_r, loc),
+
+    // Logical
+    LAnd => logical_op(st2, lt_r, rt_r, loc),
+    LOr => logical_op(st2, lt_r, rt_r, loc),
+
+    // Bitwise
+    BAnd => bitwise_op(st2, lt_r, rt_r, loc),
+    BOr => bitwise_op(st2, lt_r, rt_r, loc),
+    BXor => bitwise_op(st2, lt_r, rt_r, loc),
+    Shl => bitwise_op(st2, lt_r, rt_r, loc),
+    Shr => bitwise_op(st2, lt_r, rt_r, loc)
+  }
+}
+
+fn arith_op(st: CheckState, op: BinaryOp, lt_r: Ty, rt_r: Ty, loc: Location) -> (Ty, CheckState) {
+  if is_numeric(lt_r) && is_numeric(rt_r) {
+    (widen_numeric(lt_r, rt_r), st)
+  } else {
+    let is_add = match op { Add => true, _ => false };
+    let str_concat = is_add && (lt_r == CString) && (rt_r == CString);
+    if str_concat {
+      (CString, st)
+    } else {
+      let st2 = add_error(st,
+        "Operator requires numeric operands, got " ++ ty_to_string(lt_r) ++ " and " ++ ty_to_string(rt_r),
+        loc);
+      (CAny, st2)
+    }
+  }
+}
+
+fn cmp_op(st: CheckState, lt: Ty, rt: Ty, lt_r: Ty, rt_r: Ty, loc: Location) -> (Ty, CheckState) {
+  let (ok, st1) = unify(st, lt, rt);
+  let st2 = if !ok {
+    add_error(st1, "Cannot compare " ++ ty_to_string(lt_r) ++ " with " ++ ty_to_string(rt_r), loc)
+  } else {
+    st1
+  };
+  (CBool, st2)
+}
+
+fn logical_op(st: CheckState, lt_r: Ty, rt_r: Ty, loc: Location) -> (Ty, CheckState) {
+  let st1 = if lt_r != CBool {
+    add_error(st, "Logical operator requires Bool, got " ++ ty_to_string(lt_r), loc)
+  } else {
+    st
+  };
+  let st2 = if rt_r != CBool {
+    add_error(st1, "Logical operator requires Bool, got " ++ ty_to_string(rt_r), loc)
+  } else {
+    st1
+  };
+  (CBool, st2)
+}
+
+fn bitwise_op(st: CheckState, lt_r: Ty, rt_r: Ty, loc: Location) -> (Ty, CheckState) {
+  let st1 = if lt_r != CInt {
+    add_error(st, "Bitwise operator requires Int, got " ++ ty_to_string(lt_r), loc)
+  } else {
+    st
+  };
+  let st2 = if rt_r != CInt {
+    add_error(st1, "Bitwise operator requires Int, got " ++ ty_to_string(rt_r), loc)
+  } else {
+    st1
+  };
+  (CInt, st2)
+}
+
+fn infer_unary_op(
+  st: CheckState,
+  scopes: [[(String, Binding)]],
+  op: UnaryOp,
+  operand: Expr,
+  loc: Location
+) -> (Ty, CheckState) {
+  let (t, st1) = infer(st, scopes, operand);
+  let t_r = resolve(st1, t);
+  match op {
+    Neg => {
+      let st2 = if !is_numeric(t_r) {
+        add_error(st1, "Negation requires numeric type, got " ++ ty_to_string(t_r), loc)
+      } else {
+        st1
+      };
+      (t_r, st2)
+    },
+    LNot => {
+      let st2 = if t_r != CBool {
+        add_error(st1, "Logical NOT requires Bool, got " ++ ty_to_string(t_r), loc)
+      } else {
+        st1
+      };
+      (CBool, st2)
+    },
+    BNot => {
+      let st2 = if t_r != CInt {
+        add_error(st1, "Bitwise NOT requires Int, got " ++ ty_to_string(t_r), loc)
+      } else {
+        st1
+      };
+      (CInt, st2)
+    }
+  }
+}
+
+// Echo / EchoR builtins. Arguments are inferred first (so nested errors
+// surface regardless of arity), mirroring the .res.
+fn infer_echo_builtin(
+  st: CheckState,
+  scopes: [[(String, Binding)]],
+  name: String,
+  args: [Expr],
+  loc: Location
+) -> (Ty, CheckState) {
+  let (arg_tys0, st1) = infer_all(st, scopes, args);
+  // Pre-resolve each argument type against the substitution map.
+  let arg_tys = map(arg_tys0, |t| resolve(st1, t));
+  let arity = len(arg_tys);
+
+  if name == "echo" {
+    let st2 = expect_arity(st1, name, 2, arity, loc);
+    if arity == 2 {
+      (CEcho(arg_tys[0], arg_tys[1]), st2)
+    } else {
+      (CEcho(CAny, CAny), st2)
+    }
+  } else if name == "echo_to_residue" {
+    let st2 = expect_arity(st1, name, 1, arity, loc);
+    if arity >= 1 {
+      match arg_tys[0] {
+        CEcho(a, b) => (CEchoR(a, b), st2),
+        CAny => (CEchoR(CAny, CAny), st2),
+        other => {
+          let st3 = add_error(st2, "echo_to_residue expects Echo<A, B>, got " ++ ty_to_string(other), loc);
+          (CEchoR(CAny, CAny), st3)
+        }
+      }
+    } else {
+      (CEchoR(CAny, CAny), st2)
+    }
+  } else if name == "residue_strictly_loses" {
+    let st2 = expect_arity(st1, name, 1, arity, loc);
+    if arity >= 1 {
+      match arg_tys[0] {
+        CEchoR(_a, _b) => (CBool, st2),
+        CAny => (CBool, st2),
+        other => {
+          let st3 = add_error(st2, "residue_strictly_loses expects EchoR<A, B>, got " ++ ty_to_string(other), loc);
+          (CBool, st3)
+        }
+      }
+    } else {
+      (CBool, st2)
+    }
+  } else if name == "echo_input" {
+    let st2 = expect_arity(st1, name, 1, arity, loc);
+    if arity >= 1 {
+      match arg_tys[0] {
+        CEcho(a, _b) => (a, st2),
+        CAny => (CAny, st2),
+        CEchoR(_a, _b) => {
+          let st3 = add_error(st2,
+            "echo_input: the input witness was erased by echo_to_residue — a residue is non-recoverable",
+            loc);
+          (CAny, st3)
+        },
+        other => {
+          let st3 = add_error(st2, "echo_input expects Echo<A, B>, got " ++ ty_to_string(other), loc);
+          (CAny, st3)
+        }
+      }
+    } else {
+      (CAny, st2)
+    }
+  } else if name == "echo_output" {
+    let st2 = expect_arity(st1, name, 1, arity, loc);
+    if arity >= 1 {
+      // The output is retained by both the Echo and its residue.
+      match arg_tys[0] {
+        CEcho(_a, b) => (b, st2),
+        CEchoR(_a, b) => (b, st2),
+        CAny => (CAny, st2),
+        other => {
+          let st3 = add_error(st2, "echo_output expects Echo<A, B> or EchoR<A, B>, got " ++ ty_to_string(other), loc);
+          (CAny, st3)
+        }
+      }
+    } else {
+      (CAny, st2)
+    }
+  } else {
+    (CAny, st1)
+  }
+}
+
+// Infer all argument types, threading state.
+fn infer_all(st: CheckState, scopes: [[(String, Binding)]], args: [Expr]) -> ([Ty], CheckState) {
+  let n = len(args);
+  let mut i = 0;
+  let mut tys = [];
+  let mut state = st;
+  while i < n {
+    let (t, s2) = infer(state, scopes, args[i]);
+    tys = tys ++ [t];
+    state = s2;
+    i = i + 1;
+  }
+  (tys, state)
+}
+
+fn expect_arity(st: CheckState, name: String, n: Int, arity: Int, loc: Location) -> CheckState {
+  if arity != n {
+    add_error(st,
+      name ++ " expects " ++ int_to_string(n) ++ " argument(s), got " ++ int_to_string(arity),
+      loc)
+  } else {
+    st
+  }
+}
+
+// ============================================
+// Statement Type Checking
+//
+// `check_stmt` returns (CheckState, scopes): a `let`/`for` extends the
+// current scope, so later sibling statements see the new binding. Nested
+// blocks (`if`/`while`/`for` bodies) run in a pushed scope that is then
+// discarded (the outer scope is unchanged), matching the .res's
+// extendEnv-per-block.
+// ============================================
+
+fn check_stmt(st: CheckState, scopes: [[(String, Binding)]], stmt: Stmt) -> (CheckState, [[(String, Binding)]]) {
+  match stmt {
+    LetStmt(mutable_, name, type_, value, loc) => {
+      let (value_ty, st1) = infer(st, scopes, value);
+      match type_ {
+        Some(ann) => {
+          let ann_ty = type_expr_to_ty(ann);
+          let (ok, st2) = unify(st1, value_ty, ann_ty);
+          let st3 = if !ok {
+            add_error(st2,
+              "Type annotation mismatch for '" ++ name ++ "': declared " ++ ty_to_string(ann_ty) ++ ", value is " ++ ty_to_string(value_ty),
+              loc)
+          } else {
+            st2
+          };
+          (st3, bind(scopes, name, ann_ty, mutable_))
+        },
+        None => {
+          let resolved = resolve(st1, value_ty);
+          (st1, bind(scopes, name, resolved, mutable_))
+        }
+      }
+    },
+
+    AssignStmt(target, value, loc) =>
+      match target {
+        Ident(name, _id_loc) =>
+          match lookup_var(scopes, name) {
+            Some(b) =>
+              if b.mutable_ {
+                let (value_ty, st1) = infer(st, scopes, value);
+                let (ok, st2) = unify(st1, value_ty, b.ty);
+                let st3 = if !ok {
+                  add_error(st2,
+                    "Cannot assign " ++ ty_to_string(value_ty) ++ " to " ++ ty_to_string(b.ty) ++ " variable '" ++ name ++ "'",
+                    loc)
+                } else {
+                  st2
+                };
+                (st3, scopes)
+              } else {
+                let st1 = add_error(st, "Cannot reassign immutable variable '" ++ name ++ "'", loc);
+                let (_vt, st2) = infer(st1, scopes, value);
+                (st2, scopes)
+              },
+            None => {
+              let st1 = add_error(st, "Undefined variable '" ++ name ++ "'", loc);
+              let (_vt, st2) = infer(st1, scopes, value);
+              (st2, scopes)
+            }
+          },
+        _ => {
+          // Complex assignment targets (index, member) — infer both sides.
+          let (_tt, st1) = infer(st, scopes, target);
+          let (_vt, st2) = infer(st1, scopes, value);
+          (st2, scopes)
+        }
+      },
+
+    IfStmt(cond, then_, elseifs, else_, loc) => {
+      let (cond_ty, st1) = infer(st, scopes, cond);
+      let (ok_c, st2) = unify(st1, cond_ty, CBool);
+      let st3 = if !ok_c {
+        add_error(st2, "If condition must be Bool, got " ++ ty_to_string(cond_ty), loc)
+      } else {
+        st2
+      };
+      let then_scopes = extend(scopes);
+      let (st4, _ts) = check_block(st3, then_scopes, then_);
+      let st5 = check_elseifs(st4, scopes, elseifs, loc);
+      let st6 = match else_ {
+        Some(else_body) => {
+          let else_scopes = extend(scopes);
+          let (s, _es) = check_block(st5, else_scopes, else_body);
+          s
+        },
+        None => st5
+      };
+      (st6, scopes)
+    },
+
+    WhileStmt(cond, body, loc) => {
+      let (cond_ty, st1) = infer(st, scopes, cond);
+      let (ok_c, st2) = unify(st1, cond_ty, CBool);
+      let st3 = if !ok_c {
+        add_error(st2, "While condition must be Bool, got " ++ ty_to_string(cond_ty), loc)
+      } else {
+        st2
+      };
+      let body_scopes = extend(scopes);
+      let (st4, _bs) = check_block(st3, body_scopes, body);
+      (st4, scopes)
+    },
+
+    ForStmt(var_name, iter, body, loc) => {
+      let (iter_ty, st1) = infer(st, scopes, iter);
+      let (elem_ty, st2) = match resolve(st1, iter_ty) {
+        CArray(inner) => (inner, st1),
+        CAny => (CAny, st1),
+        other => {
+          let s = add_error(st1, "For loop requires Array, got " ++ ty_to_string(other), loc);
+          (CAny, s)
+        }
+      };
+      let body_scopes = bind(extend(scopes), var_name, elem_ty, false);
+      let (st3, _bs) = check_block(st2, body_scopes, body);
+      (st3, scopes)
+    },
+
+    ReturnStmt(value, _loc) =>
+      match value {
+        Some(expr) => {
+          let (_t, st1) = infer(st, scopes, expr);
+          (st1, scopes)
+        },
+        None => (st, scopes)
+      },
+
+    BreakStmt(_loc) => (st, scopes),
+    ContinueStmt(_loc) => (st, scopes),
+
+    PrintStmt(_println, args, _loc) => {
+      // print/println accept any type.
+      let st1 = infer_for_effect(st, scopes, args);
+      (st1, scopes)
+    },
+
+    // Gutter blocks are intentional error injection zones — skip checking.
+    GutterBlock(_tokens, _recovered, _loc) => (st, scopes),
+
+    ExprStmt(expr) => {
+      let (_t, st1) = infer(st, scopes, expr);
+      (st1, scopes)
+    }
+  }
+}
+
+// Check a list of elseif (cond, body) pairs, each in its own pushed scope.
+fn check_elseifs(st: CheckState, scopes: [[(String, Binding)]], elseifs: [(Expr, [Stmt])], loc: Location) -> CheckState {
+  let n = len(elseifs);
+  let mut i = 0;
+  let mut state = st;
+  while i < n {
+    let (eif_cond, eif_body) = elseifs[i];
+    let (eif_ty, s1) = infer(state, scopes, eif_cond);
+    let (ok, s2) = unify(s1, eif_ty, CBool);
+    let s3 = if !ok {
+      add_error(s2, "Elseif condition must be Bool, got " ++ ty_to_string(eif_ty), loc)
+    } else {
+      s2
+    };
+    let eif_scopes = extend(scopes);
+    let (s4, _es) = check_block(s3, eif_scopes, eif_body);
+    state = s4;
+    i = i + 1;
+  }
+  state
+}
+
+// Infer each expression purely for side effects (errors), discarding types.
+fn infer_for_effect(st: CheckState, scopes: [[(String, Binding)]], exprs: [Expr]) -> CheckState {
+  let n = len(exprs);
+  let mut i = 0;
+  let mut state = st;
+  while i < n {
+    let (_t, s2) = infer(state, scopes, exprs[i]);
+    state = s2;
+    i = i + 1;
+  }
+  state
+}
+
+// Check a block of statements in a (already-extended) scope. Bindings made
+// by a statement are visible to its successors within the block.
+fn check_block(st: CheckState, scopes: [[(String, Binding)]], stmts: [Stmt]) -> (CheckState, [[(String, Binding)]]) {
+  let n = len(stmts);
+  let mut i = 0;
+  let mut state = st;
+  let mut sc = scopes;
+  while i < n {
+    let (s2, sc2) = check_stmt(state, sc, stmts[i]);
+    state = s2;
+    sc = sc2;
+    i = i + 1;
+  }
+  (state, sc)
+}
+
+// Check statements and return their (block) type: TyNil, as in the .res
+// `checkStmts`. Used as a lambda block body.
+fn check_stmts(st: CheckState, scopes: [[(String, Binding)]], stmts: [Stmt]) -> (Ty, CheckState) {
+  let (state, _sc) = check_block(st, scopes, stmts);
+  (CNil, state)
+}
+
+// ============================================
+// Declaration Checking
+// ============================================
+
+fn check_decl(st: CheckState, scopes: [[(String, Binding)]], decl: Decl) -> (CheckState, [[(String, Binding)]]) {
+  match decl {
+    FunctionDecl(name, params, return_type, body, _loc) => {
+      let fn_scopes = extend(scopes);
+      let (param_tys, scopes2, st1) = bind_lambda_params(st, fn_scopes, params);
+      // Infer body in the function scope (errors surface; result discarded).
+      let (st2, _bs) = check_block(st1, scopes2, body);
+      let ret_ty = match return_type {
+        Some(ann) => type_expr_to_ty(ann),
+        None => CNil
+      };
+      // Bind the function in the OUTER environment.
+      (st2, bind(scopes, name, CFun(param_tys, ret_ty), false))
+    },
+
+    StructDecl(name, _fields, _loc) =>
+      // Register the struct name as a type.
+      (st, bind(scopes, name, CStruct(name), false)),
+
+    MainBlock(body, _loc) => {
+      let main_scopes = extend(scopes);
+      let (st1, _ms) = check_block(st, main_scopes, body);
+      (st1, scopes)
+    },
+
+    StmtDecl(stmt) => check_stmt(st, scopes, stmt)
+  }
+}
+
+// ============================================
+// Program Entry Point
+// ============================================
+
+// Type-check a complete Error-Lang program. Returns the accumulated errors.
+pub fn check_program(prog: Program) -> [TypeError] {
+  let st0 = make_state();
+  let scopes0 = empty_scopes();
+  let n = len(prog.declarations);
+  let mut i = 0;
+  let mut state = st0;
+  let mut scopes = scopes0;
+  while i < n {
+    let (s2, sc2) = check_decl(state, scopes, prog.declarations[i]);
+    state = s2;
+    scopes = sc2;
+    i = i + 1;
+  }
+  state.errors
+}
