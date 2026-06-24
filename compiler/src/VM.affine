@@ -1,0 +1,727 @@
+// SPDX-License-Identifier: MPL-2.0
+// VM.affine — bytecode virtual machine for Error-Lang
+// (ported from compiler/src/VM.res).
+//
+// Stack-based interpreter with computational haptics integration.
+//
+// ── AffineScript port: state model ──
+// The ReScript VM is a `mutable` struct whose `push`/`pop`/`peek` mutate the
+// `stack` array and `sp`/`ip`/`fp` in place, threads variables through a
+// `Map.t`, and signals runtime failure by `raise(RuntimeError(msg))` caught in
+// `run`. AffineScript has no mutable struct fields, no in-place array writes,
+// and no ReScript-style exceptions, so:
+//   * `Vm` is an immutable struct; the stack is a `[Value]` rebuilt each step
+//     and `sp` is kept as an explicit mirror of `len(stack)` (push appends +
+//     bumps sp; pop truncates the last element + drops sp). This differs from
+//     the .res representation (a grow-only array + an independent `sp` that can
+//     trail `length`) ONLY in the pathological stale-tail case, which the
+//     codegen — emitting balanced push/pop — never produces; for all bytecode
+//     Codegen.affine generates the two representations are observationally
+//     identical. `OpSetLocal`'s mid-stack write `stack[base+i] = v` is rendered
+//     by `set_stack_at` (rebuild with one slot replaced; cf. Parser
+//     `set_token_at`).
+//   * `globals: Map.t<string, value>` -> an assoc list `[(String, Value)]` with
+//     linear get/set (last-write-wins via prepend), the same purely-functional
+//     style TypeChecker.affine used for its Int-keyed substitution map.
+//   * RUNTIME ERRORS: instead of `raise(RuntimeError(msg))`, fallible helpers
+//     return `Result<…, String>` and `execute_instruction` returns an
+//     `ExecResult` ( ExContinue(Vm) | ExHalt(Vm) | ExError(String) ). `run`
+//     turns `ExError(m)` into `Error("Runtime error: " ++ m)` — exactly the
+//     message the .res `catch RuntimeError(msg)` produced. The error STRINGS
+//     are preserved verbatim (e.g. "Stack underflow", "Cannot add these
+//     types", "echo_input: the witness was erased …").
+//   * Value/opcode/chunk types and `value_to_string` come from `Bytecode`
+//     (`use Bytecode::*;`); the paradox payload is opaque here
+//     (`OpInjectParadox(_)`), so the Px-prefix rename is invisible.
+//
+// ── Echo semantics (kept byte-faithful) ──
+// OpEcho pops output then input and pushes VEcho(input, output). OpEchoToResidue
+// pops an echo, debits `echo_erase_cost` stability, records a "witness erased"
+// trace, and pushes VResidue(output); a residue is idempotent (no further
+// loss). OpResidueStrictlyLoses pushes VBool(true) for a residue, false for an
+// echo. OpEchoInput returns the input witness (runtime error on a residue:
+// "echo_input: the witness was erased — a residue is non-recoverable").
+// OpEchoOutput returns the retained output of an echo OR a residue. These
+// mirror VM.res arm-for-arm.
+//
+// ── Faithfulness notes: documented gaps / simplifications vs VM.res ──
+//   * `Math.pow` (JS) has no AffineScript-stdlib equivalent for Float^Float
+//     (the stdlib exposes `math::pow : (Int, Int) -> Int`, plus `exp`/`sqrt`,
+//     but no `ln`/`log`). The StarOp-exponentiation path is therefore realized
+//     by `math_pow(base, exp)`: a faithful repeated-multiplication power over
+//     the INTEGER part of the exponent (negative exponents -> reciprocal). For
+//     integer exponents — the case the positional rule actually produces from
+//     integer operands — this is exact and identical to `Math.pow`; a
+//     FRACTIONAL exponent is approximated by truncation (its fractional part is
+//     dropped) because no logarithm primitive is available. This is the only
+//     numeric divergence from the .res.
+//   * `Console.log` for `OpPrint`, `OpCheckpoint`, and the `debug` instruction
+//     trace are REAL VM behaviour (program output + the haptics checkpoint
+//     markers + the opt-in debug stream), not a test harness, so they are kept
+//     — rendered with the `println` builtin. The checkpoint/print/debug text is
+//     reproduced (incl. the "📍 Checkpoint: …" and "IP: … <op>" formats).
+//   * `mod(a,b)` -> the `%` operator; `Int.toFloat` -> the `float(...)` cast;
+//     `Float.toString` -> `float_to_string`; `Map.get/set` -> assoc-list
+//     get/set; `Array.reverse` (OpArray) -> an explicit reversing pop loop that
+//     already yields elements in stack order (so no separate reverse needed —
+//     see OpArray). `peek`/`pop` bounds checks and their error strings are
+//     preserved.
+//   * `OpLte`/`OpGte` raise "Not implemented" in the .res; reproduced exactly
+//     (ExError "Not implemented"). `OpCall` raises "Function calls not yet
+//     implemented"; reproduced. `OpReturn` with no frames halts; reproduced.
+//   * No `runTests`/Console *test* code exists in VM.res, so nothing is omitted.
+
+module VM;
+
+use prelude::*;
+use Bytecode::*;
+
+// Stability debited when an Echo is erased to its residue. Echo-Lang's conceit
+// is that loss can be *structured* but is never free: erasing the witness is a
+// thermodynamic act (a Landauer-style cost; cf. echo-types `fiber_erasure_bound`,
+// k·T·⌊log₂ n⌋). Modelled here as a fixed symbolic debit until fibre cardinality
+// is computable at runtime.
+pub fn echo_erase_cost() -> Float { 15.0 }
+
+// ============================================
+// VM state (immutable; threaded)
+// ============================================
+
+pub struct CallFrame {
+  functionName: String,
+  returnAddress: Int,
+  localBase: Int   // Base of local variables in the stack.
+}
+
+pub struct Vm {
+  // Execution state.
+  stack: [Value],
+  sp: Int,         // Stack pointer (mirror of len(stack)).
+  ip: Int,         // Instruction pointer.
+  frames: [CallFrame],
+  fp: Int,         // Frame pointer.
+
+  // Variables (assoc list; the .res Map.t<string, value>).
+  globals: [(String, Value)],
+
+  // Program.
+  chunk: Chunk,
+
+  // Computational haptics state.
+  stabilityScore: Float,
+  activeParadoxes: Int,   // Bitmask.
+  traceHistory: [(String, Value)],
+
+  // Debug.
+  debug: Bool
+}
+
+pub fn make(chunk: Chunk) -> Vm {
+  #{ stack: [], sp: 0, ip: 0, frames: [], fp: 0, globals: [],
+     chunk: chunk, stabilityScore: 100.0, activeParadoxes: 0,
+     traceHistory: [], debug: false }
+}
+
+// ============================================
+// Float power (see header faithfulness note: replaces JS Math.pow).
+// ============================================
+
+fn math_pow(base: Float, ex: Float) -> Float {
+  let n = trunc(ex);
+  let neg = n < 0;
+  let mut k = if neg { -n } else { n };
+  let mut acc = 1.0;
+  while k > 0 {
+    acc = acc * base;
+    k = k - 1;
+  }
+  if neg { 1.0 / acc } else { acc }
+}
+
+// ============================================
+// Stack operations (immutable; return rebuilt Vm / values)
+// ============================================
+
+// Push appends the value and bumps sp.
+fn push(vm: Vm, value: Value) -> Vm {
+  #{ stack: vm.stack ++ [value], sp: vm.sp + 1, ip: vm.ip,
+     frames: vm.frames, fp: vm.fp, globals: vm.globals, chunk: vm.chunk,
+     stabilityScore: vm.stabilityScore, activeParadoxes: vm.activeParadoxes,
+     traceHistory: vm.traceHistory, debug: vm.debug }
+}
+
+// Replace stack[idx] with `value` (rebuild). Used by OpSetLocal's mid-stack
+// write; does not change sp.
+fn set_stack_at(vm: Vm, idx: Int, value: Value) -> Vm {
+  let mut out = [];
+  let mut i = 0;
+  let n = len(vm.stack);
+  while i < n {
+    if i == idx { out = out ++ [value]; } else { out = out ++ [vm.stack[i]]; }
+    i = i + 1;
+  }
+  #{ stack: out, sp: vm.sp, ip: vm.ip, frames: vm.frames, fp: vm.fp,
+     globals: vm.globals, chunk: vm.chunk, stabilityScore: vm.stabilityScore,
+     activeParadoxes: vm.activeParadoxes, traceHistory: vm.traceHistory,
+     debug: vm.debug }
+}
+
+// Pop: error on underflow; otherwise truncate the last element and drop sp.
+fn pop(vm: Vm) -> Result<(Value, Vm), String> {
+  if vm.sp == 0 {
+    Err("Stack underflow")
+  } else {
+    let top_idx = vm.sp - 1;
+    let value = vm.stack[top_idx];
+    let mut out = [];
+    let mut i = 0;
+    while i < top_idx {
+      out = out ++ [vm.stack[i]];
+      i = i + 1;
+    }
+    let vm2 = #{ stack: out, sp: vm.sp - 1, ip: vm.ip, frames: vm.frames,
+                 fp: vm.fp, globals: vm.globals, chunk: vm.chunk,
+                 stabilityScore: vm.stabilityScore,
+                 activeParadoxes: vm.activeParadoxes,
+                 traceHistory: vm.traceHistory, debug: vm.debug };
+    Ok((value, vm2))
+  }
+}
+
+// Pop two values (right first, then left — matching the .res order).
+fn pop2(vm: Vm) -> Result<(Value, Value, Vm), String> {
+  match pop(vm) {
+    Ok((right, vm1)) =>
+      match pop(vm1) {
+        Ok((left, vm2)) => Ok((right, left, vm2)),
+        Err(e) => Err(e)
+      },
+    Err(e) => Err(e)
+  }
+}
+
+fn peek(vm: Vm, offset: Int) -> Result<Value, String> {
+  let index = vm.sp - 1 - offset;
+  if index < 0 || index >= vm.sp {
+    Err("Stack peek out of bounds")
+  } else {
+    Ok(vm.stack[index])
+  }
+}
+
+// ---- globals (assoc list; last write wins via prepend) ----
+
+fn globals_get(vm: Vm, name: String) -> Option<Value> {
+  let mut out = None;
+  let mut found = false;
+  for pair in vm.globals {
+    let (k, v) = pair;
+    if !found && k == name {
+      out = Some(v);
+      found = true;
+    }
+  }
+  out
+}
+
+fn globals_set(vm: Vm, name: String, value: Value) -> Vm {
+  let mut rest = [];
+  for pair in vm.globals {
+    let (k, v) = pair;
+    if k != name {
+      rest = rest ++ [(k, v)];
+    }
+  }
+  #{ stack: vm.stack, sp: vm.sp, ip: vm.ip, frames: vm.frames, fp: vm.fp,
+     globals: [(name, value)] ++ rest, chunk: vm.chunk,
+     stabilityScore: vm.stabilityScore, activeParadoxes: vm.activeParadoxes,
+     traceHistory: vm.traceHistory, debug: vm.debug }
+}
+
+// ---- single-field rebuilders (used by handlers that touch one field) ----
+
+fn with_ip(vm: Vm, new_ip: Int) -> Vm {
+  #{ stack: vm.stack, sp: vm.sp, ip: new_ip, frames: vm.frames, fp: vm.fp,
+     globals: vm.globals, chunk: vm.chunk, stabilityScore: vm.stabilityScore,
+     activeParadoxes: vm.activeParadoxes, traceHistory: vm.traceHistory,
+     debug: vm.debug }
+}
+
+fn with_stability(vm: Vm, score: Float) -> Vm {
+  #{ stack: vm.stack, sp: vm.sp, ip: vm.ip, frames: vm.frames, fp: vm.fp,
+     globals: vm.globals, chunk: vm.chunk, stabilityScore: score,
+     activeParadoxes: vm.activeParadoxes, traceHistory: vm.traceHistory,
+     debug: vm.debug }
+}
+
+fn push_trace(vm: Vm, msg: String, value: Value) -> Vm {
+  #{ stack: vm.stack, sp: vm.sp, ip: vm.ip, frames: vm.frames, fp: vm.fp,
+     globals: vm.globals, chunk: vm.chunk, stabilityScore: vm.stabilityScore,
+     activeParadoxes: vm.activeParadoxes,
+     traceHistory: vm.traceHistory ++ [(msg, value)], debug: vm.debug }
+}
+
+// ============================================
+// Positional operator resolution
+//   PlusOp: even column = addition, odd column = concatenation
+//   StarOp: column % 3 == 0 = multiplication, else = exponentiation
+// ============================================
+
+fn resolve_positional_operator(pos: PositionMetadata, left: Value, right: Value) -> Result<Value, String> {
+  match pos.opType {
+    PlusOp =>
+      if pos.column % 2 == 0 {
+        // Addition.
+        match (left, right) {
+          (VInt(a), VInt(b)) => Ok(VInt(a + b)),
+          (VFloat(a), VFloat(b)) => Ok(VFloat(a + b)),
+          (VInt(a), VFloat(b)) => Ok(VFloat(float(a) + b)),
+          (VFloat(a), VInt(b)) => Ok(VFloat(a + float(b))),
+          _ => Err("Cannot add these types")
+        }
+      } else {
+        // Concatenation.
+        let left_str = value_to_string(left);
+        let right_str = value_to_string(right);
+        Ok(VString(left_str ++ right_str))
+      },
+    StarOp =>
+      if pos.column % 3 == 0 {
+        // Multiplication.
+        match (left, right) {
+          (VInt(a), VInt(b)) => Ok(VInt(a * b)),
+          (VFloat(a), VFloat(b)) => Ok(VFloat(a * b)),
+          (VInt(a), VFloat(b)) => Ok(VFloat(float(a) * b)),
+          (VFloat(a), VInt(b)) => Ok(VFloat(a * float(b))),
+          _ => Err("Cannot multiply these types")
+        }
+      } else {
+        // Exponentiation.
+        match (left, right) {
+          (VInt(a), VInt(b)) => Ok(VFloat(math_pow(float(a), float(b)))),
+          (VFloat(a), VFloat(b)) => Ok(VFloat(math_pow(a, b))),
+          (VInt(a), VFloat(b)) => Ok(VFloat(math_pow(float(a), b))),
+          (VFloat(a), VInt(b)) => Ok(VFloat(math_pow(a, float(b)))),
+          _ => Err("Cannot exponentiate these types")
+        }
+      }
+  }
+}
+
+// ============================================
+// Instruction execution
+// ============================================
+
+pub enum ExecResult {
+  ExContinue(Vm),   // Keep executing.
+  ExHalt(Vm),       // Stop, success (current top of stack is the result).
+  ExError(String)   // Runtime error.
+}
+
+// Execute the instruction at vm.ip. Advances ip past the instruction first
+// (control-flow ops then adjust it), mirroring the .res.
+fn execute_instruction(vm0: Vm) -> ExecResult {
+  if vm0.ip >= len(vm0.chunk.code) {
+    ExHalt(vm0)
+  } else {
+    let instruction = vm0.chunk.code[vm0.ip];
+
+    // Optional debug trace (real opt-in VM output).
+    if vm0.debug {
+      println("IP: " ++ int_to_string(vm0.ip) ++ " " ++ opcode_to_string(instruction));
+    }
+
+    // Advance past the instruction (control-flow ops adjust ip afterwards).
+    let vm = with_ip(vm0, vm0.ip + 1);
+    exec_op(vm, instruction)
+  }
+}
+
+fn exec_op(vm: Vm, instruction: Opcode) -> ExecResult {
+  match instruction {
+    // ---- Stack manipulation ----
+    OpPush(value) => ExContinue(push(vm, value)),
+    OpPop =>
+      match pop(vm) {
+        Ok((_v, vm1)) => ExContinue(vm1),
+        Err(e) => ExError(e)
+      },
+    OpDup =>
+      match peek(vm, 0) {
+        Ok(value) => ExContinue(push(vm, value)),
+        Err(e) => ExError(e)
+      },
+
+    // ---- Variables ----
+    OpGetLocal(index) => {
+      let base = if len(vm.frames) > 0 { vm.frames[vm.fp].localBase } else { 0 };
+      let slot = base + index;
+      if slot >= 0 && slot < len(vm.stack) {
+        ExContinue(push(vm, vm.stack[slot]))
+      } else {
+        ExError("Local variable out of bounds")
+      }
+    },
+    OpSetLocal(index) =>
+      match peek(vm, 0) {
+        Ok(value) => {
+          let base = if len(vm.frames) > 0 { vm.frames[vm.fp].localBase } else { 0 };
+          let slot = base + index;
+          if slot >= 0 && slot < len(vm.stack) {
+            ExContinue(set_stack_at(vm, slot, value))
+          } else {
+            ExError("Local variable out of bounds")
+          }
+        },
+        Err(e) => ExError(e)
+      },
+    OpGetGlobal(name) =>
+      match globals_get(vm, name) {
+        Some(value) => ExContinue(push(vm, value)),
+        None => ExError("Undefined variable '" ++ name ++ "'")
+      },
+    OpSetGlobal(name) =>
+      match peek(vm, 0) {
+        Ok(value) => ExContinue(globals_set(vm, name, value)),
+        Err(e) => ExError(e)
+      },
+
+    // ---- Arithmetic with positional semantics ----
+    OpAdd(pos) =>
+      match pop2(vm) {
+        Ok((right, left, vm2)) =>
+          match resolve_positional_operator(pos, left, right) {
+            Ok(result) => ExContinue(push(vm2, result)),
+            Err(e) => ExError(e)
+          },
+        Err(e) => ExError(e)
+      },
+    OpSub =>
+      match pop2(vm) {
+        Ok((right, left, vm2)) =>
+          match (left, right) {
+            (VInt(a), VInt(b)) => ExContinue(push(vm2, VInt(a - b))),
+            (VFloat(a), VFloat(b)) => ExContinue(push(vm2, VFloat(a - b))),
+            (VInt(a), VFloat(b)) => ExContinue(push(vm2, VFloat(float(a) - b))),
+            (VFloat(a), VInt(b)) => ExContinue(push(vm2, VFloat(a - float(b)))),
+            _ => ExError("Cannot subtract these types")
+          },
+        Err(e) => ExError(e)
+      },
+    OpMul(pos) =>
+      match pop2(vm) {
+        Ok((right, left, vm2)) =>
+          match resolve_positional_operator(pos, left, right) {
+            Ok(result) => ExContinue(push(vm2, result)),
+            Err(e) => ExError(e)
+          },
+        Err(e) => ExError(e)
+      },
+    OpDiv =>
+      match pop2(vm) {
+        Ok((right, left, vm2)) =>
+          match (left, right) {
+            (VInt(a), VInt(b)) =>
+              if b != 0 { ExContinue(push(vm2, VInt(a / b))) }
+              else { ExError("Division by zero or invalid types") },
+            (VFloat(a), VFloat(b)) =>
+              if b != 0.0 { ExContinue(push(vm2, VFloat(a / b))) }
+              else { ExError("Division by zero or invalid types") },
+            _ => ExError("Division by zero or invalid types")
+          },
+        Err(e) => ExError(e)
+      },
+    OpMod =>
+      match pop2(vm) {
+        Ok((right, left, vm2)) =>
+          match (left, right) {
+            (VInt(a), VInt(b)) =>
+              if b != 0 { ExContinue(push(vm2, VInt(a % b))) }
+              else { ExError("Modulo requires integers") },
+            _ => ExError("Modulo requires integers")
+          },
+        Err(e) => ExError(e)
+      },
+    OpNegate =>
+      match pop(vm) {
+        Ok((value, vm1)) =>
+          match value {
+            VInt(n) => ExContinue(push(vm1, VInt(-n))),
+            VFloat(f) => ExContinue(push(vm1, VFloat(-f))),
+            _ => ExError("Cannot negate this type")
+          },
+        Err(e) => ExError(e)
+      },
+
+    // ---- Comparison ----
+    OpEq =>
+      match pop2(vm) {
+        Ok((right, left, vm2)) => ExContinue(push(vm2, VBool(left == right))),
+        Err(e) => ExError(e)
+      },
+    OpNeq =>
+      match pop2(vm) {
+        Ok((right, left, vm2)) => ExContinue(push(vm2, VBool(left != right))),
+        Err(e) => ExError(e)
+      },
+    OpLt =>
+      match pop2(vm) {
+        Ok((right, left, vm2)) =>
+          match (left, right) {
+            (VInt(a), VInt(b)) => ExContinue(push(vm2, VBool(a < b))),
+            (VFloat(a), VFloat(b)) => ExContinue(push(vm2, VBool(a < b))),
+            _ => ExError("Cannot compare these types")
+          },
+        Err(e) => ExError(e)
+      },
+    OpGt =>
+      match pop2(vm) {
+        Ok((right, left, vm2)) =>
+          match (left, right) {
+            (VInt(a), VInt(b)) => ExContinue(push(vm2, VBool(a > b))),
+            (VFloat(a), VFloat(b)) => ExContinue(push(vm2, VBool(a > b))),
+            _ => ExError("Cannot compare these types")
+          },
+        Err(e) => ExError(e)
+      },
+    OpLte => ExError("Not implemented"),
+    OpGte => ExError("Not implemented"),
+
+    // ---- Logical ----
+    OpAnd =>
+      match pop2(vm) {
+        Ok((right, left, vm2)) =>
+          match (left, right) {
+            (VBool(a), VBool(b)) => ExContinue(push(vm2, VBool(a && b))),
+            _ => ExError("AND requires booleans")
+          },
+        Err(e) => ExError(e)
+      },
+    OpOr =>
+      match pop2(vm) {
+        Ok((right, left, vm2)) =>
+          match (left, right) {
+            (VBool(a), VBool(b)) => ExContinue(push(vm2, VBool(a || b))),
+            _ => ExError("OR requires booleans")
+          },
+        Err(e) => ExError(e)
+      },
+    OpNot =>
+      match pop(vm) {
+        Ok((value, vm1)) =>
+          match value {
+            VBool(b) => ExContinue(push(vm1, VBool(!b))),
+            _ => ExError("NOT requires boolean")
+          },
+        Err(e) => ExError(e)
+      },
+
+    // ---- Control flow ----
+    OpJump(offset) => ExContinue(with_ip(vm, vm.ip + offset)),
+    OpJumpIfFalse(offset) =>
+      match pop(vm) {
+        Ok((condition, vm1)) =>
+          match condition {
+            VBool(false) => ExContinue(with_ip(vm1, vm1.ip + offset)),
+            VBool(true) => ExContinue(vm1),
+            _ => ExError("Condition must be boolean")
+          },
+        Err(e) => ExError(e)
+      },
+    OpCall(_arity) => ExError("Function calls not yet implemented"),
+    OpReturn =>
+      if len(vm.frames) == 0 {
+        ExHalt(vm)
+      } else {
+        let frame = vm.frames[vm.fp];
+        let vm1 = with_ip(vm, frame.returnAddress);
+        // fp = fp - 1 (frame stack is left intact, as in the .res).
+        ExContinue(#{ stack: vm1.stack, sp: vm1.sp, ip: vm1.ip,
+                      frames: vm1.frames, fp: vm1.fp - 1, globals: vm1.globals,
+                      chunk: vm1.chunk, stabilityScore: vm1.stabilityScore,
+                      activeParadoxes: vm1.activeParadoxes,
+                      traceHistory: vm1.traceHistory, debug: vm1.debug })
+      },
+
+    // ---- Arrays ----
+    OpArray(size) => {
+      // Pop `size` values. The .res pushes them into `arr` then reverses; popping
+      // builds them in reverse, so prepending each popped value yields the
+      // original stack order directly (equivalent to push-then-reverse).
+      let mut elems = [];
+      let mut k = 0;
+      let mut cur = vm;
+      let mut err = None;
+      while k < size {
+        match err {
+          Some(_e) => { k = size; },
+          None =>
+            match pop(cur) {
+              Ok((v, vm1)) => {
+                elems = [v] ++ elems;
+                cur = vm1;
+                k = k + 1;
+              },
+              Err(e) => { err = Some(e); k = size; }
+            }
+        }
+      }
+      match err {
+        Some(e) => ExError(e),
+        None => ExContinue(push(cur, VArray(elems)))
+      }
+    },
+    OpIndex =>
+      match pop2(vm) {
+        // pop2 returns (right=index, left=array).
+        Ok((index, array, vm2)) =>
+          match (array, index) {
+            (VArray(arr), VInt(i)) =>
+              if i >= 0 && i < len(arr) {
+                ExContinue(push(vm2, arr[i]))
+              } else {
+                ExError("Invalid array indexing")
+              },
+            _ => ExError("Invalid array indexing")
+          },
+        Err(e) => ExError(e)
+      },
+
+    // ---- Computational haptics ----
+    OpTrace(msg) =>
+      match peek(vm, 0) {
+        Ok(value) => ExContinue(push_trace(vm, msg, value)),
+        Err(e) => ExError(e)
+      },
+    OpCheckpoint(name) => {
+      // Real haptics output marker.
+      println("📍 Checkpoint: " ++ name);
+      ExContinue(vm)
+    },
+    OpUpdateStability => {
+      // Recalculate based on active paradoxes (simple heuristic, as .res).
+      let paradox_count = float(vm.activeParadoxes);
+      ExContinue(with_stability(vm, 100.0 - (paradox_count * 10.0)))
+    },
+    OpInjectParadox(_p) => {
+      // Activate a paradox (bump the bitmask) and debit stability.
+      let vm1 = #{ stack: vm.stack, sp: vm.sp, ip: vm.ip, frames: vm.frames,
+                   fp: vm.fp, globals: vm.globals, chunk: vm.chunk,
+                   stabilityScore: vm.stabilityScore - 5.0,
+                   activeParadoxes: vm.activeParadoxes + 1,
+                   traceHistory: vm.traceHistory, debug: vm.debug };
+      ExContinue(vm1)
+    },
+
+    // ---- Echo types (structured loss) ----
+    OpEcho =>
+      match pop2(vm) {
+        // pop2 returns (right=output, left=input).
+        Ok((output, input, vm2)) => ExContinue(push(vm2, VEcho(input, output))),
+        Err(e) => ExError(e)
+      },
+    OpEchoToResidue =>
+      match pop(vm) {
+        Ok((e, vm1)) =>
+          match e {
+            VEcho(_input, output) => {
+              // Erasure is not free: destroying the witness costs stability.
+              let vm2 = with_stability(vm1, vm1.stabilityScore - echo_erase_cost());
+              let vm3 = push_trace(vm2, "echo_to_residue: witness erased", VEcho(_input, output));
+              ExContinue(push(vm3, VResidue(output)))
+            },
+            // Already a residue — idempotent, no further loss.
+            VResidue(out) => ExContinue(push(vm1, VResidue(out))),
+            _ => ExError("echo_to_residue expects an Echo value")
+          },
+        Err(e) => ExError(e)
+      },
+    OpResidueStrictlyLoses =>
+      match pop(vm) {
+        Ok((e, vm1)) =>
+          match e {
+            VResidue(_out) => ExContinue(push(vm1, VBool(true))),
+            VEcho(_in, _out) => ExContinue(push(vm1, VBool(false))),
+            _ => ExError("residue_strictly_loses expects an Echo or residue value")
+          },
+        Err(e) => ExError(e)
+      },
+    OpEchoInput =>
+      match pop(vm) {
+        Ok((e, vm1)) =>
+          match e {
+            VEcho(input, _output) => ExContinue(push(vm1, input)),
+            VResidue(_out) =>
+              ExError("echo_input: the witness was erased — a residue is non-recoverable"),
+            _ => ExError("echo_input expects an Echo value")
+          },
+        Err(e) => ExError(e)
+      },
+    OpEchoOutput =>
+      match pop(vm) {
+        Ok((e, vm1)) =>
+          match e {
+            VEcho(_input, output) => ExContinue(push(vm1, output)),
+            VResidue(output) => ExContinue(push(vm1, output)),
+            _ => ExError("echo_output expects an Echo or residue value")
+          },
+        Err(e) => ExError(e)
+      },
+
+    // ---- Debug ----
+    OpPrint(is_println) =>
+      match pop(vm) {
+        Ok((value, vm1)) => {
+          let str = value_to_string(value);
+          // .res uses Console.log for both print and println (same behavior).
+          if is_println { println(str); } else { println(str); }
+          ExContinue(vm1)
+        },
+        Err(e) => ExError(e)
+      },
+    OpHalt => ExHalt(vm)
+  }
+}
+
+// ============================================
+// VM driver
+// ============================================
+
+// Run the VM to completion, returning the top of stack (or VNil) or a runtime
+// error. Mirrors VM.res `run` (loop while ip < code length).
+pub fn run(vm0: Vm) -> Result<Value, String> {
+  let mut vm = vm0;
+  let mut running = true;
+  let mut err = None;
+  while running && vm.ip < len(vm.chunk.code) {
+    match execute_instruction(vm) {
+      ExContinue(vm1) => { vm = vm1; },
+      ExHalt(vm1) => { vm = vm1; running = false; },
+      ExError(m) => { err = Some(m); running = false; }
+    }
+  }
+  match err {
+    Some(m) => Err("Runtime error: " ++ m),
+    None =>
+      // Return top of stack or nil.
+      if vm.sp > 0 {
+        match peek(vm, 0) {
+          Ok(v) => Ok(v),
+          Err(e) => Err("Runtime error: " ++ e)
+        }
+      } else {
+        Ok(VNil)
+      }
+  }
+}
+
+// Execute a bytecode program (debug-gated instruction trace).
+pub fn execute(program: BytecodeProgram, debug: Bool) -> Result<Value, String> {
+  let vm0 = make(program.main);
+  let vm = #{ stack: vm0.stack, sp: vm0.sp, ip: vm0.ip, frames: vm0.frames,
+              fp: vm0.fp, globals: vm0.globals, chunk: vm0.chunk,
+              stabilityScore: vm0.stabilityScore,
+              activeParadoxes: vm0.activeParadoxes,
+              traceHistory: vm0.traceHistory, debug: debug };
+  run(vm)
+}
