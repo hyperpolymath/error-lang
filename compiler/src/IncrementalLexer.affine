@@ -1,0 +1,231 @@
+// SPDX-License-Identifier: MPL-2.0
+// SPDX-FileCopyrightText: 2026 Jonathan D.A. Jewell
+//
+// IncrementalLexer.affine — incremental lexing support for Error-Lang
+// (ported from compiler/src/IncrementalLexer.res).
+//
+// Wraps the Error-Lang lexer (Lexer.lex) for incremental re-lexing. On an edit,
+// only the affected token range is re-lexed and spliced into the cached token
+// list (tree-sitter-style: cache tokens with byte offsets, find the affected
+// range, re-lex it plus a small resync buffer, splice with adjusted offsets).
+//
+// ── AffineScript port conventions ──
+//   * `open Types` -> `use Types::*;`; `Lexer.lex` -> `use Lexer::{lex};` (same
+//     `(source, file, run_number) -> ([Token],[Diagnostic])` signature the Cst
+//     port already consumes).
+//   * `t` / `cachedToken` are immutable structs (they already were in the .res).
+//   * Pervasive record-spread (`{...ct.token, loc: {...loc, start: {...}, …}}`)
+//     -> full reconstruction via `shift_token` / `shift_cached` helpers that
+//     rebuild `Token`/`Location`/`Position` with offset-shifted fields. No
+//     record-spread is used anywhere.
+//   * `ref` cells in the binary/linear searches -> `let mut` locals.
+//     `String.substring(~start,~end)` -> `substring`; `Int.max`/`Int.min` ->
+//     `max`/`min`; `Array.slice(~start,~end)` -> `xs[a:b]`;
+//     `Array.filter`/`Array.map` -> prelude `filter`/`map`; `Array.some` -> a
+//     small `any`-style fold.
+//
+// ── Faithfulness notes: documented gaps / simplifications vs IncrementalLexer.res ──
+//   * The entire TEST harness is OMITTED per the "omit runTests / Console /
+//     assert" rule: `assert_matches_full_lex` and the twelve `test*` functions
+//     and `run_tests`. They use `Console.error` + `assert`, are not part of the
+//     compiler's behaviour, and several rely on the lexer treating `#`/`//`
+//     comments and `"…"` strings — orthogonal to the splice logic under port.
+//   * The real incremental behaviour is ported faithfully and completely:
+//     `full_lex`, `create`, `tokens`, `source`, `token_types`,
+//     `find_first_after` (binary search), `find_last_affected` (linear scan),
+//     and `edit` (resync-buffered re-lex + offset-adjusted head/new/tail splice
+//     + EOF guarantee) with identical arithmetic.
+
+module IncrementalLexer;
+
+use prelude::*;
+use string::{substring};
+use Lexer::{lex};
+use Types::*;
+
+/// An edit to a source file. Replaces bytes [start, oldEnd) with newText.
+pub struct Edit {
+  start: Int,
+  oldEnd: Int,
+  newText: String
+}
+
+/// A cached token with byte offsets into the source.
+pub struct CachedToken {
+  token: Token,
+  startOffset: Int,
+  endOffset: Int
+}
+
+/// The incremental lexer state.
+pub struct ILState {
+  source: String,
+  tokens: [CachedToken]
+}
+
+/// Number of extra tokens to include before/after the edit region for correct
+/// re-synchronisation.
+pub fn resync_buffer() -> Int { 2 }
+
+// ---- Token/Location/Position reconstruction (no record-spread) ----
+
+fn shift_position(p: Position, delta: Int) -> Position {
+  #{ line: p.line, column: p.column, offset: p.offset + delta }
+}
+
+fn shift_token(tok: Token, delta: Int) -> Token {
+  let loc = tok.loc;
+  let new_loc = #{ start: shift_position(loc.start, delta),
+                   end_: shift_position(loc.end_, delta),
+                   file: loc.file };
+  #{ type_: tok.type_, lexeme: tok.lexeme, loc: new_loc }
+}
+
+fn shift_cached(ct: CachedToken, delta: Int) -> CachedToken {
+  #{ token: shift_token(ct.token, delta),
+     startOffset: ct.startOffset + delta,
+     endOffset: ct.endOffset + delta }
+}
+
+/// Perform a full lex of the given source and return cached tokens.
+pub fn full_lex(source: String) -> [CachedToken] {
+  let (toks, _diagnostics) = lex(source, "<incremental>", 0);
+  map(toks, |tok| #{ token: tok,
+                     startOffset: tok.loc.start.offset,
+                     endOffset: tok.loc.end_.offset })
+}
+
+/// Create a new incremental lexer from the given source.
+pub fn create(source: String) -> ILState {
+  #{ source: source, tokens: full_lex(source) }
+}
+
+/// Get all current tokens.
+pub fn tokens(state: ILState) -> [CachedToken] { state.tokens }
+
+/// Get the current source text.
+pub fn source(state: ILState) -> String { state.source }
+
+fn is_eof(ct: CachedToken) -> Bool {
+  match ct.token.type_ { EOF => true, _ => false }
+}
+
+/// Get token types (excluding EOF) for comparison.
+pub fn token_types(state: ILState) -> [TokenType] {
+  let non_eof = filter(state.tokens, |ct| !is_eof(ct));
+  map(non_eof, |ct| ct.token.type_)
+}
+
+/// Binary search: find the first token index whose endOffset > target.
+pub fn find_first_after(toks: [CachedToken], target: Int) -> Int {
+  let mut lo = 0;
+  let mut hi = len(toks);
+  while lo < hi {
+    let mid = lo + (hi - lo) / 2;
+    if toks[mid].endOffset <= target {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  lo
+}
+
+/// Find the index of the first token starting at or past oldEnd.
+pub fn find_last_affected(toks: [CachedToken], old_end: Int, from: Int) -> Int {
+  let n = len(toks);
+  let mut result = n;
+  let mut i = from;
+  let mut found = false;
+  while i < n && !found {
+    if toks[i].startOffset >= old_end {
+      result = i;
+      found = true;
+    } else {
+      i = i + 1;
+    }
+  }
+  result
+}
+
+fn has_eof(toks: [CachedToken]) -> Bool {
+  let mut i = 0;
+  let n = len(toks);
+  let mut out = false;
+  while i < n && !out {
+    if is_eof(toks[i]) { out = true; }
+    i = i + 1;
+  }
+  out
+}
+
+/// Apply an edit and re-lex only the affected region. Returns a new state with
+/// the updated source and tokens.
+pub fn edit(state: ILState, e: Edit) -> ILState {
+  let old_source = state.source;
+  let old_len = len(old_source);
+
+  // Apply the text edit to the source string.
+  let prefix = substring(old_source, 0, e.start);
+  let suffix = substring(old_source, e.oldEnd, old_len);
+  let new_source = prefix ++ e.newText ++ suffix;
+
+  let new_end = e.start + len(e.newText);
+  let delta = new_end - e.oldEnd;
+  let n = len(state.tokens);
+
+  // First affected token index (minus the resync buffer, floored at 0).
+  let first_raw = find_first_after(state.tokens, e.start);
+  let first_affected = max(0, first_raw - resync_buffer());
+
+  // Last affected token (plus the resync buffer, capped at n).
+  let last_raw = find_last_affected(state.tokens, e.oldEnd, first_affected);
+  let last_affected = min(n, last_raw + resync_buffer());
+
+  // Byte range to re-lex in the new source.
+  let relex_start = if first_affected < n {
+    min(state.tokens[first_affected].startOffset, e.start)
+  } else {
+    e.start
+  };
+
+  let relex_end_old = if (last_affected - 1) >= 0 && (last_affected - 1) < n {
+    max(state.tokens[last_affected - 1].endOffset, e.oldEnd)
+  } else {
+    e.oldEnd
+  };
+  let relex_end = min(len(new_source), relex_end_old + delta);
+
+  // Re-lex the affected region.
+  let region = substring(new_source, relex_start, relex_end);
+  let new_tokens_raw = full_lex(region);
+
+  // Offset new tokens (by relexStart) and filter out EOF.
+  let new_non_eof = filter(new_tokens_raw, |ct| !is_eof(ct));
+  let new_tokens = map(new_non_eof, |ct| shift_cached(ct, relex_start));
+
+  // Head: tokens before the affected region.
+  let head = state.tokens[0:first_affected];
+
+  // Tail: tokens after the affected region with adjusted offsets.
+  let tail_slice = state.tokens[last_affected:n];
+  let tail = map(tail_slice, |ct| shift_cached(ct, delta));
+
+  // Combine head + new + tail.
+  let combined = (head ++ new_tokens) ++ tail;
+
+  // Ensure EOF is present.
+  let result = if has_eof(combined) {
+    combined
+  } else {
+    let eof_pos = len(new_source);
+    let eof_loc = #{ start: #{ line: 1, column: 1, offset: eof_pos },
+                     end_: #{ line: 1, column: 1, offset: eof_pos },
+                     file: "<incremental>" };
+    let eof_tok = #{ token: #{ type_: EOF, lexeme: "", loc: eof_loc },
+                     startOffset: eof_pos, endOffset: eof_pos };
+    combined ++ [eof_tok]
+  };
+
+  #{ source: new_source, tokens: result }
+}

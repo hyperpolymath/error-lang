@@ -1,0 +1,332 @@
+// SPDX-License-Identifier: MPL-2.0
+// IncrementalParser.affine — incremental parsing wrapper for Error-Lang
+// (ported from compiler/src/IncrementalParser.res).
+//
+// Wraps Parser.parse for incremental re-parsing: cache top-level declarations
+// with byte ranges; on edit, apply the text change, find overlapping decls,
+// re-parse only those (via Lexer.lex + Parser.parse), splice the new decls into
+// the cache adjusting byte offsets.
+//
+// ── AffineScript port: state model ──
+//   * The .res `t` has `mutable source/items/errors` mutated in place by `edit`
+//     (which returns only the diagnostics). AffineScript has no mutable struct
+//     fields, so `T` is immutable and the producers THREAD it: `make` returns a
+//     `T`; `edit` returns `(T, [ParseDiagnostic])` (the new state paired with
+//     the diagnostics the .res returned alone). Callers
+//     `let (t2, diags) = edit(t, e, file);`. This is the same threading the
+//     Parser/TypeChecker ports use.
+//   * Pervasive record-spread (`{...ci, start: …}`, `{...item, …}`) -> full
+//     reconstruction of `CachedDecl`. `Array.concatMany([a,b,c])` -> `a ++ b ++
+//     c`; `Array.sliceToEnd(~start)` -> `xs[start:]`; `Array.slice(~start,~end)`
+//     -> `xs[a:b]`; `Option.isNone` -> `match`.
+//   * `Lexer.lex` / `Parser.parse` reuse the shipped modules' signatures
+//     (`([Token],[Diagnostic])` and `(Program,[Diagnostic])`).
+//   * `String.charCodeAt(src,i)` (NaN past end) -> `code_at` (= -1 past end);
+//     `Float.isNaN(c) || …` boundary test becomes `c == -1 || …`.
+//     `String.trimStart` is only used for its *length delta* (leading-ws
+//     count) and the all-whitespace test, so it is replaced by `leading_ws`
+//     (a leading-whitespace counter) — same numeric result, no full trim.
+//   * `formatDiagnostic` is NOT present in the shipped Types.affine (only
+//     `error_code_to_string` is), so it is reimplemented locally here, byte-for-
+//     byte faithful to Types.res `formatDiagnostic`.
+//
+// ── Faithfulness notes: documented gaps / simplifications vs IncrementalParser.res ──
+//   * No behaviour omitted. `decl_kind`, the top-keyword set, `starts_with_keyword`
+//     (whole-word check), `find_decl_boundaries`, `build_cache` (exact-count vs
+//     even-distribution fallback), `lex_source`, `full_parse`, `make`, `edit`
+//     (overlap scan, re-parse range, fragment re-parse, offset-adjusted splice,
+//     full-reparse fallback), `items`, `full_ast`, and `source` are all ported.
+//   * `edit`'s signature is the documented `(T, [ParseDiagnostic])` adaptation
+//     of the .res's mutate-and-return-diagnostics; behaviour is identical.
+//   * No `runTests`/Console code exists in IncrementalParser.res, so nothing is
+//     omitted on that account.
+
+module IncrementalParser;
+
+use prelude::*;
+use string::{substring, split, char_at};
+use Lexer::{lex};
+use Parser::{parse};
+use Types::*;
+
+// ============================================
+// Types
+// ============================================
+
+/// Describes a text edit applied to the source.
+pub struct Edit {
+  start: Int,
+  oldEnd: Int,
+  newText: String
+}
+
+/// A cached top-level declaration with its byte range.
+pub struct CachedDecl {
+  kind: String,
+  start: Int,
+  end_: Int,
+  decl: Decl
+}
+
+/// Diagnostic from incremental parsing.
+pub struct ParseDiagnostic {
+  message: String,
+  offset: Int
+}
+
+/// The incremental parser state (immutable; threaded).
+pub struct IPState {
+  source: String,
+  items: [CachedDecl],
+  errors: [Diagnostic]
+}
+
+// ============================================
+// Helpers
+// ============================================
+
+// Code point at index `i`, or -1 at/past end of input.
+fn code_at(s: String, i: Int) -> Int {
+  match char_at(s, i) {
+    Some(c) => char_to_int(c),
+    None => -1
+  }
+}
+
+// Count of leading ASCII-whitespace characters in `line`.
+fn leading_ws(line: String) -> Int {
+  let n = len(line);
+  let mut i = 0;
+  let mut go = true;
+  while i < n && go {
+    let c = code_at(line, i);
+    if c == 32 || c == 9 || c == 13 {
+      i = i + 1;
+    } else {
+      go = false;
+    }
+  }
+  i
+}
+
+// Local reimplementation of Types.res `formatDiagnostic` (not exported by the
+// shipped Types.affine).
+pub fn format_diagnostic(diag: Diagnostic) -> String {
+  let code_str = error_code_to_string(diag.code);
+  let loc = diag.loc;
+  "Error-LangError: " ++ loc.file ++ ":" ++ int_to_string(loc.start.line) ++ ":" ++
+  int_to_string(loc.start.column) ++ ": " ++ diag.message ++
+  " [code=" ++ code_str ++ " run=" ++ int_to_string(diag.runNumber) ++ "]"
+}
+
+/// Classify a declaration to a kind string.
+pub fn decl_kind(d: Decl) -> String {
+  match d {
+    FunctionDecl(_n, _p, _r, _b, _l) => "Function",
+    StructDecl(_n, _f, _l) => "Struct",
+    MainBlock(_b, _l) => "Main",
+    StmtDecl(_s) => "Statement"
+  }
+}
+
+/// Top-level keywords that can start a declaration in Error-Lang.
+pub fn top_keywords() -> [String] {
+  ["function", "main", "struct", "let", "if", "while", "for", "gutter"]
+}
+
+// Is `c` an identifier-continuation byte (a-z, A-Z, 0-9, _)?
+fn is_ident_code(c: Int) -> Bool {
+  (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95
+}
+
+/// Check if a substring at the given position starts with a top-level keyword
+/// (as a whole word).
+pub fn starts_with_keyword(src: String, pos: Int) -> Bool {
+  let kws = top_keywords();
+  let slen = len(src);
+  let mut i = 0;
+  let n = len(kws);
+  let mut found = false;
+  while i < n && !found {
+    let kw = kws[i];
+    let kw_len = len(kw);
+    if pos + kw_len <= slen {
+      let sub = substring(src, pos, pos + kw_len);
+      if sub == kw {
+        // Whole-word check: end-of-source or a non-identifier byte follows.
+        if pos + kw_len >= slen {
+          found = true;
+        } else {
+          let c = code_at(src, pos + kw_len);
+          if c == -1 || !is_ident_code(c) {
+            found = true;
+          }
+        }
+      }
+    }
+    i = i + 1;
+  }
+  found
+}
+
+/// Find byte offsets of top-level declaration boundaries.
+pub fn find_decl_boundaries(src: String) -> [Int] {
+  let lines = split(src, "\n");
+  let mut boundaries = [];
+  let mut offset = 0;
+  let mut li = 0;
+  let nlines = len(lines);
+  while li < nlines {
+    let line = lines[li];
+    let lead = leading_ws(line);
+    let trim_offset = offset + lead;
+    // `length(trimmed) > 0` <=> the line is not entirely leading whitespace.
+    if lead < len(line) && starts_with_keyword(src, trim_offset) {
+      boundaries = boundaries ++ [trim_offset];
+    }
+    offset = offset + len(line) + 1; // +1 for newline
+    li = li + 1;
+  }
+  boundaries
+}
+
+/// Build cached declarations from parsed program and source text.
+pub fn build_cache(prog: Program, src: String) -> [CachedDecl] {
+  let boundaries = find_decl_boundaries(src);
+  let decls = prog.declarations;
+  let src_len = len(src);
+  let n_decls = len(decls);
+  let n_bounds = len(boundaries);
+
+  if n_decls == 0 {
+    []
+  } else if n_bounds == n_decls {
+    let mut out = [];
+    let mut i = 0;
+    while i < n_decls {
+      let s = boundaries[i];
+      let e = if i + 1 < n_bounds { boundaries[i + 1] } else { src_len };
+      out = out ++ [#{ kind: decl_kind(decls[i]), start: s, end_: e, decl: decls[i] }];
+      i = i + 1;
+    }
+    out
+  } else {
+    // Fallback: distribute evenly.
+    let mut out = [];
+    let mut i = 0;
+    while i < n_decls {
+      let s = i * src_len / n_decls;
+      let e = (i + 1) * src_len / n_decls;
+      out = out ++ [#{ kind: decl_kind(decls[i]), start: s, end_: e, decl: decls[i] }];
+      i = i + 1;
+    }
+    out
+  }
+}
+
+/// Lex the source string into tokens.
+pub fn lex_source(src: String, file: String) -> [Token] {
+  let (toks, _diags) = lex(src, file, 0);
+  toks
+}
+
+/// Full parse: lex and parse the source.
+pub fn full_parse(src: String, file: String) -> ([CachedDecl], [Diagnostic]) {
+  let (toks, lex_diags) = lex(src, file, 0);
+  let (prog, parse_diags) = parse(toks, file, 0);
+  let items = build_cache(prog, src);
+  (items, lex_diags ++ parse_diags)
+}
+
+// ============================================
+// Public API
+// ============================================
+
+/// Create a new incremental parser by performing a full initial parse.
+pub fn make(source: String, file: String) -> IPState {
+  let (items, errors) = full_parse(source, file);
+  #{ source: source, items: items, errors: errors }
+}
+
+// Rebuild a CachedDecl with start/end shifted by `delta`.
+fn shift_decl(ci: CachedDecl, delta: Int) -> CachedDecl {
+  #{ kind: ci.kind, start: ci.start + delta, end_: ci.end_ + delta, decl: ci.decl }
+}
+
+/// Apply a text edit and re-parse only the affected declarations. Returns the
+/// new state paired with diagnostics from the re-parsed region (the .res
+/// mutated `t` in place and returned only the diagnostics — see header).
+pub fn edit(t: IPState, e: Edit, file: String) -> (IPState, [ParseDiagnostic]) {
+  let edit_len_diff = len(e.newText) - (e.oldEnd - e.start);
+
+  // 1. Apply text edit to source.
+  let before = substring(t.source, 0, e.start);
+  let after = substring(t.source, e.oldEnd, len(t.source));
+  let new_source = before ++ e.newText ++ after;
+
+  // 2. Find affected items.
+  let items = t.items;
+  let n_items = len(items);
+  let mut first_affected = -1;
+  let mut last_affected = -1;
+  let mut idx = 0;
+  while idx < n_items {
+    let item = items[idx];
+    if item.end_ > e.start && item.start < e.oldEnd {
+      if first_affected == -1 {
+        first_affected = idx;
+      }
+      last_affected = idx;
+    }
+    idx = idx + 1;
+  }
+
+  if first_affected == -1 {
+    // No overlap — full re-parse.
+    let (new_items, errors) = full_parse(new_source, file);
+    let t2 = #{ source: new_source, items: new_items, errors: errors };
+    let diags = map(errors, |er| #{ message: format_diagnostic(er), offset: 0 });
+    (t2, diags)
+  } else {
+    let first = first_affected;
+    let last = last_affected;
+
+    // 3. Determine re-parse range.
+    let reparse_start = items[first].start;
+    let old_reparse_end = items[last].end_;
+    let reparse_end = min(old_reparse_end + edit_len_diff, len(new_source));
+    let fragment_len = max(reparse_end - reparse_start, 0);
+    let fragment = substring(new_source, reparse_start, reparse_start + fragment_len);
+
+    // 4. Re-parse the fragment.
+    let (toks, _lex_diags) = lex(fragment, file, 0);
+    let (prog, errors) = parse(toks, file, 0);
+
+    let diagnostics = map(errors, |er| #{ message: format_diagnostic(er), offset: reparse_start });
+
+    // 5. Build new cached items from the fragment, offset by reparseStart.
+    let new_cached = map(build_cache(prog, fragment), |ci| shift_decl(ci, reparse_start));
+
+    // 6. Splice: before/after arrays by index ranges (after shifted by diff).
+    let before_items = items[0:first];
+    let after_items = map(items[last + 1:n_items], |item| shift_decl(item, edit_len_diff));
+
+    let new_items = (before_items ++ new_cached) ++ after_items;
+    let t2 = #{ source: new_source, items: new_items, errors: errors };
+    (t2, diagnostics)
+  }
+}
+
+/// Return the current cached declarations.
+pub fn items(t: IPState) -> [CachedDecl] { t.items }
+
+/// Reconstruct the full AST program from cached declarations.
+pub fn full_ast(t: IPState) -> Program {
+  #{ declarations: map(t.items, |ci| ci.decl),
+     loc: #{ start: #{ line: 1, column: 1, offset: 0 },
+             end_: #{ line: 0, column: 0, offset: len(t.source) },
+             file: "<incremental>" } }
+}
+
+/// Return the current source text.
+pub fn source(t: IPState) -> String { t.source }

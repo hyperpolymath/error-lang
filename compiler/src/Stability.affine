@@ -1,0 +1,307 @@
+// SPDX-License-Identifier: MPL-2.0
+// Stability.affine — stability analysis & consequence amplification
+// (ported from compiler/src/Stability.res).
+//
+// ── AffineScript port conventions ──
+//   * `open Types` -> `use Types::*;`. The shared stability arithmetic
+//     (`calculate_stability`, `stability_impact`) and the `StabilityFactor`
+//     constructors (`MutableState`/…) live in Types.affine and are reused
+//     verbatim; ReScript inline-record variant payloads (`MutableState({…})`)
+//     are positional there (`MutableState(mutations, readers)`).
+//   * The `paradox` / `consequence` / `discovery` enums are ported with
+//     positional constructor args (ReScript inline records -> positional).
+//   * `Dict.make`/`Dict.set` -> the stdlib `dict` assoc-list (`[(String,Int)]`,
+//     which is exactly `Dict<String,Int>` in Types.affine); `breakdown` is
+//     folded with `dict::insert`.
+//   * `Float.sqrt(Int.toFloat(x))->Float.toInt` -> `trunc(sqrt(float(x)))`.
+//   * `String.split(s,"")`/`Array.reverse` -> `split`/`collections::reverse`;
+//     `String.repeat` -> the string-`repeat` (selectively imported to avoid the
+//     prelude list-`repeat` of the same name); `Array.includes` -> `contains`;
+//     `Array.map(...)->Array.flat` -> `flat_map`.
+//
+// ── Faithfulness notes: documented gaps / simplifications vs Stability.res ──
+//   * `generate_report` is OMITTED — it is the one piece that is NOT expressible
+//     in AffineScript as it stands. It must construct a `Types::StabilityReport`,
+//     whose `breakdown` field is typed `Dict<String, Int>`. `Dict` is a phantom
+//     type constructor in the current compiler: it is accepted in annotations
+//     (struct-field lowering does not recurse into the field's kind — see
+//     lib/typecheck.ml `register_type_decl`/`infer_kind` where `TRecord` yields
+//     `KType` without inspecting fields), but it has NO value-level
+//     introduction anywhere — no Dict literal, no Dict-returning builtin or
+//     stdlib fn, `transmute<…>` is statement-only and unwired in the checker,
+//     and any *normal* `fn` mentioning `Dict<_,_>` in its signature is rejected
+//     at kind-check ("Too many arguments for kind"). The stdlib `dict` module is
+//     the assoc-list `[(String, V)]`, a DISTINCT nominal type that does not
+//     unify with `Dict<String, Int>`. Because Types.affine is a shipped module
+//     that must not be modified, the `breakdown` field type is fixed, so no
+//     `StabilityReport` value can be built. The report's *arithmetic* survives
+//     intact via `Types::calculate_stability` + `stability_impact` and the
+//     per-factor `recommend_stabilization`/`factor_category` helpers below
+//     (all ported); a caller that already holds a `StabilityReport` (e.g. via
+//     `check_discovery`, `Analyzer::format_stability_report`) works unchanged.
+//   * Everything else is ported with identical arithmetic and output strings:
+//     every paradox/consequence/discovery constructor, the position-hash
+//     operator arithmetic, the prime/Fibonacci/palindrome scope-leak
+//     predicates, the per-factor recommendations, discovery checks, the
+//     stability bar and the consequence emoji (UTF-8 glyphs preserved exactly).
+
+module Stability;
+
+use prelude::*;
+use string::{split, repeat};
+use collections::{reverse};
+use math::{sqrt};
+use Types::*;
+
+// ============================================
+// Paradox Detection (Language Archaeology)
+// ============================================
+
+pub enum Paradox {
+  // (keyword, line, depth, isKeyword, reason)
+  ContextCollapseKeyword(String, Int, Int, Bool, String),
+  // (operator, line, column, behavior, alternatives)
+  PositionalOperator(String, Int, Int, String, [(Int, String)]),
+  // (variable, line, possibleTypes, collapseTarget)
+  TypeSuperposition(String, Int, [String], String),
+  // (variable, declaredLine, accessLine, runNumber, leakReason)
+  ScopeLeakage(String, Int, Int, Int, String),
+  // (variable, line, affectedByRun, mechanism)
+  TemporalCorruption(String, Int, Int, String)
+}
+
+// Check if keyword collapses to identifier based on context
+pub fn is_context_collapse(word: String, depth: Int, line: Int, column: Int) -> Bool {
+  if word == "end" { depth % 3 != 0 }       // 'end' is identifier at depth 1, 2, 4, 5...
+  else if word == "let" { column % 5 != 2 } // 'let' is identifier at certain columns
+  else if word == "if" { depth >= 10 }      // Deep nesting makes 'if' an identifier
+  else if word == "function" { line % 7 == 0 } // Line divisible by 7 makes it identifier
+  else { false }
+}
+
+// Determine operator behavior based on position
+pub fn operator_behavior_from_position(op: String, line: Int, column: Int) -> String {
+  let hash = (line * 31 + column) % 4;
+  if op == "+" && hash == 0 { "addition" }
+  else if op == "+" && hash == 1 { "concatenation" }
+  else if op == "+" && hash == 2 { "subtraction" }
+  else if op == "+" && hash == 3 { "xor" }
+  else if op == "=>" && hash == 0 { "lambda" }
+  else if op == "=>" && hash == 1 { "comparison" }
+  else if op == "." && hash == 0 { "member-access" }
+  else if op == "." && hash == 1 { "range" }
+  else { "unknown" }
+}
+
+// Get alternative operator behaviors at different columns
+pub fn alternative_operator_behaviors(op: String, line: Int, current_col: Int) -> [(Int, String)] {
+  [
+    (current_col - 1, operator_behavior_from_position(op, line, current_col - 1)),
+    (current_col + 1, operator_behavior_from_position(op, line, current_col + 1)),
+    (current_col + 2, operator_behavior_from_position(op, line, current_col + 2))
+  ]
+}
+
+// Check if scope should leak on this run
+pub fn is_prime(n: Int) -> Bool {
+  if n < 2 { false }
+  else if n == 2 { true }
+  else if n % 2 == 0 { false }
+  else {
+    let mut i = 3;
+    let mut result = true;
+    let mut go = true;
+    while go {
+      if i * i > n { go = false; }
+      else if n % i == 0 { result = false; go = false; }
+      else { i = i + 2; }
+    }
+    result
+  }
+}
+
+fn is_perfect_square(x: Int) -> Bool {
+  if x < 0 {
+    false
+  } else {
+    let r = trunc(sqrt(float(x)));
+    r * r == x
+  }
+}
+
+pub fn is_fibonacci(n: Int) -> Bool {
+  // Quick Fibonacci check using golden ratio property
+  is_perfect_square(5 * n * n + 4) || is_perfect_square(5 * n * n - 4)
+}
+
+fn is_palindrome(s: String) -> Bool {
+  let chars = split(s, "");
+  chars == reverse(chars)
+}
+
+pub fn should_scope_leak(var_name: String, line: Int, run_number: Int) -> Bool {
+  is_prime(run_number) || is_palindrome(var_name) || is_fibonacci(line)
+}
+
+// ============================================
+// Consequence Amplification
+// ============================================
+
+pub enum Consequence {
+  // (variable, mutationLine, affectedLocations, stabilityPenalty)
+  MutationRipple(String, Int, [Int], Int),
+  // (variable, typeLine, cascadeDepth, conflicts)
+  TypeCascade(String, Int, Int, [(Int, String)]),
+  // (origin, poisonedPath, finalStability)
+  NullPoison(Int, [(Int, String)], Int),
+  // (globalName, mutationLine, destabilizedFunctions, stabilityLoss)
+  GlobalEarthquake(String, Int, [String], Int)
+}
+
+// Analyze mutation ripple effect
+pub fn analyze_mutation_ripple(var_name: String, mutation_loc: Location, readers: [Location]) -> Consequence {
+  let affected_lines = map(readers, |loc| loc.start.line);
+  let penalty = 10 + len(readers) * 5;
+  MutationRipple(var_name, mutation_loc.start.line, affected_lines, penalty)
+}
+
+// Track type instability cascade
+pub fn analyze_type_cascade(var_name: String, reassignments: [(Location, TypeExpr)]) -> Consequence {
+  let conflicts = map(reassignments, |pair| {
+    let (loc, _typ) = pair;
+    (loc.start.line, "type-conflict")
+  });
+  let type_line = if len(reassignments) > 0 {
+    let (loc0, _t0) = reassignments[0];
+    loc0.start.line
+  } else {
+    0
+  };
+  TypeCascade(var_name, type_line, len(reassignments), conflicts)
+}
+
+// ============================================
+// Stability Recommendations
+// ============================================
+
+pub fn recommend_stabilization(factor: StabilityFactor) -> [String] {
+  match factor {
+    MutableState(_mutations, readers) => [
+      "Consider using immutable data structures",
+      "This mutation affects " ++ int_to_string(readers) ++ " other locations",
+      "Alternative: Use functional updates (map, filter, reduce)"
+    ],
+    TypeInstability(reassignments) => [
+      "Add explicit type annotation to prevent reassignment",
+      "Type changed " ++ int_to_string(reassignments) ++ " times",
+      "Alternative: Use different variable names for different types"
+    ],
+    NullPropagation(depth) => [
+      "Use pattern matching to handle null cases explicitly",
+      "Null propagated through " ++ int_to_string(depth) ++ " levels",
+      "Alternative: Use Option type with match expression"
+    ],
+    GlobalState(_mutations, dependencies) => [
+      "Pass state as function parameters instead of using globals",
+      int_to_string(dependencies) ++ " functions depend on this global",
+      "Alternative: Use a state struct passed explicitly"
+    ],
+    UnhandledError(paths) => [
+      "Add error handling with Result type",
+      int_to_string(paths) ++ " error paths unhandled",
+      "Alternative: Propagate errors explicitly with match"
+    ],
+    AlgorithmComplexity(time_ms) => [
+      "Consider more efficient algorithm",
+      "Execution took " ++ float_to_string(time_ms) ++ "ms (amplified)",
+      "Alternative: Use hash-based lookup or better data structure"
+    ],
+    MemoryLeak(bytes) => [
+      "Resources must be freed explicitly",
+      "Leaked " ++ int_to_string(bytes) ++ " bytes",
+      "Alternative: Use 'with' statement for automatic cleanup"
+    ],
+    RaceCondition(conflicts) => [
+      "Synchronize access to shared state",
+      int_to_string(conflicts) ++ " race conditions detected",
+      "Alternative: Use Mutex or atomic operations"
+    ]
+  }
+}
+
+// Category label for a factor in the report breakdown (`generate_report`'s
+// `Dict` key). Ported faithfully; usable by any caller that builds an
+// assoc-list breakdown itself, even though `generate_report` (which would
+// need a `Dict<String,Int>`) is not expressible — see header.
+pub fn factor_category(factor: StabilityFactor) -> String {
+  match factor {
+    MutableState(_m, _r) => "mutability",
+    TypeInstability(_x) => "types",
+    NullPropagation(_d) => "null-handling",
+    GlobalState(_m, _d) => "global-state",
+    UnhandledError(_p) => "error-handling",
+    AlgorithmComplexity(_t) => "performance",
+    MemoryLeak(_b) => "memory",
+    RaceCondition(_c) => "concurrency"
+  }
+}
+
+// NOTE: `generate_report` (Stability.res) is intentionally not ported — it
+// constructs a `Types::StabilityReport`, whose `breakdown: Dict<String,Int>`
+// field has no value-level introduction in AffineScript. See the header
+// faithfulness note for the full rationale. The recommendation list it would
+// build is available directly: `flat_map(recommend_stabilization, factors)`.
+
+// ============================================
+// Discovery System (Achievement Tracking)
+// ============================================
+
+pub enum Discovery {
+  FirstStabilization,
+  CacheDetective,
+  PureFunctionalConvert,
+  MemoryArchaeologist,
+  AsyncEnlightenment,
+  ParadoxDiscovered(String),
+  RuleUnlocked(String)
+}
+
+pub fn check_discovery(state: RuntimeState, report: StabilityReport) -> Option<Discovery> {
+  // First time reaching 100 stability
+  if report.score >= 100 && !contains(state.historicalRuns, 100) {
+    Some(FirstStabilization)
+  }
+  // Discovered a paradox
+  else if len(state.discoveredRules) > len(state.historicalRuns) {
+    let n = len(state.discoveredRules);
+    let last = if n > 0 { state.discoveredRules[n - 1] } else { "unknown" };
+    Some(RuleUnlocked(last))
+  }
+  else {
+    None
+  }
+}
+
+// ============================================
+// Visualization Helpers
+// ============================================
+
+pub fn stability_bar(score: Int) -> String {
+  let filled = score / 5;  // 20 blocks for 100 score
+  let empty = 20 - filled;
+  let bar = repeat("█", filled) ++ repeat("░", empty);
+  "[" ++ bar ++ "] " ++ int_to_string(score) ++ "/100"
+}
+
+pub fn consequence_emoji(factor: StabilityFactor) -> String {
+  match factor {
+    MutableState(_m, _r) => "🔴",
+    TypeInstability(_x) => "⚠️",
+    NullPropagation(_d) => "☠️",
+    GlobalState(_m, _d) => "🌍",
+    UnhandledError(_p) => "💥",
+    AlgorithmComplexity(_t) => "🐌",
+    MemoryLeak(_b) => "💧",
+    RaceCondition(_c) => "⚡"
+  }
+}

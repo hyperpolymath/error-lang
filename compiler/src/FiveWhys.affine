@@ -1,0 +1,297 @@
+// SPDX-License-Identifier: MPL-2.0
+// FiveWhys.affine — Five Whys root cause analysis
+// (ported from compiler/src/FiveWhys.res).
+//
+// Automated root-cause analysis: traces symptom -> intermediate causes -> root
+// cause, teaching causal reasoning rather than pattern matching.
+//
+// ── AffineScript port conventions ──
+//   * `open Types` + `open Stability` -> `use Types::*;` + `use Stability::*;`.
+//     The `layer` type lives in LayerNavigator (it OWNS the global
+//     Grammar/Parser/AST/Semantics/Runtime constructors), so this module does a
+//     SELECTIVE `use LayerNavigator::{Layer, Grammar, Parser, AST, Semantics,
+//     Runtime}` — selective so it does NOT pull in LayerNavigator's own
+//     `type_expr_to_string`, which would collide with the (simplified) one
+//     defined here. Function names are module-scoped, so both definitions
+//     coexist; only the imported *constructors* are shared.
+//   * `Array.push(whys, {...})` building a fixed 5-element list -> a single
+//     array literal of 5 records (same order, same contents). ReScript inline
+//     records -> AffineScript `#{ … }`. `option<layer>` -> `Option<Layer>`.
+//   * `formatAnalysis`'s push-into-`lines`-then-`joinWith` -> accumulate a
+//     `[String]` (threaded `mut`) and `join(_, "\n")`; the `for i in 0 to n-1`
+//     / nested `for evidence in …` loops become index loops. `${…}` templates
+//     -> `++`. `Float.toInt(a /. b)` -> `trunc(a / b)`.
+//
+// ── Faithfulness notes: documented gaps / simplifications vs FiveWhys.res ──
+//   * No behaviour omitted and nothing here touches the unconstructable
+//     `Dict`: every why-chain (type-mismatch, mutation-impact, null-cascade,
+//     performance) is ported verbatim — same questions, answers, evidence,
+//     layers, root causes and recommendations — as is the generic `analyze`
+//     dispatch over `StabilityFactor` and the `format_analysis` renderer
+//     (identical "WHY n:" / "→" / "•" / "ROOT CAUSE" / "RECOMMENDATION" text).
+//   * `type_expr_to_string` is the .res's deliberately-simplified helper
+//     (Int/Float/String/Bool, else "Unknown"); ported as-is.
+//   * No `runTests`/Console code exists in FiveWhys.res, so nothing is omitted.
+
+module FiveWhys;
+
+use prelude::*;
+use string::{join};
+use Types::*;
+use Stability::*;
+use LayerNavigator::{Layer, Grammar, Parser, AST, Semantics, Runtime};
+
+// Why-chain: each "why" leads to deeper understanding.
+pub struct Why {
+  question: String,
+  answer: String,
+  evidence: [String],
+  layer: Option<Layer>
+}
+
+pub struct AnalysisResult {
+  symptom: String,
+  whys: [Why],
+  rootCause: String,
+  rootLayer: Layer,
+  recommendation: String
+}
+
+// Helper to convert typeExpr to string (simplified — matches the .res).
+pub fn type_expr_to_string(t: TypeExpr) -> String {
+  match t {
+    TyInt => "Int",
+    TyFloat => "Float",
+    TyString => "String",
+    TyBool => "Bool",
+    _ => "Unknown"
+  }
+}
+
+fn zero_loc() -> Location {
+  #{ file: "unknown",
+     start: #{ line: 0, column: 0, offset: 0 },
+     end_: #{ line: 0, column: 0, offset: 0 } }
+}
+
+/// Analyze type mismatch error.
+pub fn analyze_type_mismatch(var_name: String, expected_type: TypeExpr, actual_type: TypeExpr, loc: Location) -> AnalysisResult {
+  let whys = [
+    #{ question: "Why did we get a type mismatch?",
+       answer: "Variable '" ++ var_name ++ "' has type " ++ type_expr_to_string(actual_type) ++ ", but " ++ type_expr_to_string(expected_type) ++ " was expected",
+       evidence: ["Line " ++ int_to_string(loc.start.line) ++ ": type mismatch detected"],
+       layer: Some(Semantics) },
+    #{ question: "Why does '" ++ var_name ++ "' have type " ++ type_expr_to_string(actual_type) ++ "?",
+       answer: "The variable was assigned a value of that type earlier",
+       evidence: ["Type inference from initial assignment"],
+       layer: Some(Semantics) },
+    #{ question: "Why was this type assignment allowed?",
+       answer: "No explicit type annotation was provided",
+       evidence: ["Variable declared without type constraint"],
+       layer: Some(Grammar) },
+    #{ question: "Why does missing type annotation cause problems?",
+       answer: "Without type annotations, the compiler infers types, which may not match intent",
+       evidence: ["Type inference is permissive without constraints"],
+       layer: Some(Semantics) },
+    #{ question: "Why do we have type inference instead of required annotations?",
+       answer: "Design tradeoff: flexibility vs safety",
+       evidence: [
+         "Flexibility: Less code to write",
+         "Safety: More runtime errors possible"
+       ],
+       layer: None }
+  ];
+
+  #{ symptom: "Type mismatch: expected " ++ type_expr_to_string(expected_type) ++ ", got " ++ type_expr_to_string(actual_type),
+     whys: whys,
+     rootCause: "Design tradeoff between flexibility and safety",
+     rootLayer: Grammar,
+     recommendation: "Add explicit type annotation: let " ++ var_name ++ ": " ++ type_expr_to_string(expected_type) ++ " = ..." }
+}
+
+/// Analyze mutation instability.
+pub fn analyze_mutation_impact(var_name: String, mutation_loc: Location, readers: [Location]) -> AnalysisResult {
+  let reader_evidence = map(readers, |loc| "Reader at line " ++ int_to_string(loc.start.line));
+  let whys = [
+    #{ question: "Why is stability dropping?",
+       answer: "Mutable variable '" ++ var_name ++ "' is being modified",
+       evidence: ["Mutation at line " ++ int_to_string(mutation_loc.start.line)],
+       layer: Some(Runtime) },
+    #{ question: "Why does mutation reduce stability?",
+       answer: "Mutation affects " ++ int_to_string(len(readers)) ++ " other locations that read this variable",
+       evidence: reader_evidence,
+       layer: Some(Semantics) },
+    #{ question: "Why do readers get affected by mutation?",
+       answer: "Shared mutable state creates invisible dependencies",
+       evidence: [
+         "Each reader depends on the current value",
+         "Mutation changes the value for all readers",
+         "Order of reads matters"
+       ],
+       layer: Some(Semantics) },
+    #{ question: "Why use shared mutable state?",
+       answer: "Variable was declared with 'mut' keyword",
+       evidence: ["Explicit mutability declaration"],
+       layer: Some(Grammar) },
+    #{ question: "Why does mutability exist in the language?",
+       answer: "Design tradeoff: performance vs simplicity",
+       evidence: [
+         "Mutation: Fast in-place updates",
+         "Immutability: Easier to reason about, no side effects"
+       ],
+       layer: None }
+  ];
+
+  #{ symptom: "Stability dropped due to mutation of '" ++ var_name ++ "'",
+     whys: whys,
+     rootCause: "Design tradeoff between performance and simplicity",
+     rootLayer: Grammar,
+     recommendation: "Use immutable data with functional updates (map, filter, reduce)" }
+}
+
+/// Analyze null propagation cascade.
+pub fn analyze_null_cascade(origin_loc: Location, cascade_depth: Int) -> AnalysisResult {
+  let whys = [
+    #{ question: "Why did the program crash?",
+       answer: "Null pointer access occurred",
+       evidence: ["Null access at line " ++ int_to_string(origin_loc.start.line)],
+       layer: Some(Runtime) },
+    #{ question: "Why was the value null?",
+       answer: "A function returned null instead of a value",
+       evidence: ["Function can return T or Nil"],
+       layer: Some(Semantics) },
+    #{ question: "Why wasn't the null case handled?",
+       answer: "No null check or pattern matching was performed",
+       evidence: [
+         "Direct access without checking",
+         "Propagated through " ++ int_to_string(cascade_depth) ++ " levels"
+       ],
+       layer: Some(Semantics) },
+    #{ question: "Why is null checking optional?",
+       answer: "The language allows nullable types without forcing checks",
+       evidence: ["No Option type enforcement"],
+       layer: Some(Grammar) },
+    #{ question: "Why does the language allow nullable types?",
+       answer: "Design tradeoff: convenience vs safety",
+       evidence: [
+         "Convenience: No boilerplate for null checks",
+         "Safety: Runtime errors from unchecked nulls",
+         "Tony Hoare called null his 'billion dollar mistake'"
+       ],
+       layer: None }
+  ];
+
+  #{ symptom: "Null pointer exception with cascade",
+     whys: whys,
+     rootCause: "Design tradeoff between convenience and safety (nullable types)",
+     rootLayer: Grammar,
+     recommendation: "Use Option type with pattern matching to force null handling" }
+}
+
+/// Analyze performance cliff.
+pub fn analyze_performance_issue(operation: String, time_ms: Float, expected_ms: Float) -> AnalysisResult {
+  let slowdown = trunc(time_ms / expected_ms);
+  let whys = [
+    #{ question: "Why is the code slow?",
+       answer: "Operation took " ++ float_to_string(time_ms) ++ "ms, expected " ++ float_to_string(expected_ms) ++ "ms (" ++ int_to_string(slowdown) ++ "x slower)",
+       evidence: ["Performance measurement: " ++ operation],
+       layer: Some(Runtime) },
+    #{ question: "Why is " ++ operation ++ " so slow?",
+       answer: "Algorithm has O(n²) or worse complexity",
+       evidence: [
+         "Nested loops detected",
+         "Repeated scans through data"
+       ],
+       layer: Some(AST) },
+    #{ question: "Why use an O(n²) algorithm?",
+       answer: "Wrong data structure chosen for the operation",
+       evidence: [
+         "Using array/list for lookups",
+         "Should use hash table or index"
+       ],
+       layer: Some(Semantics) },
+    #{ question: "Why was the wrong data structure chosen?",
+       answer: "No explicit data structure selection in code",
+       evidence: ["Default collection used without optimization"],
+       layer: Some(Grammar) },
+    #{ question: "Why doesn't the language enforce efficient data structures?",
+       answer: "Design tradeoff: ease of use vs performance",
+       evidence: [
+         "Simple syntax: Easy to write, potentially slow",
+         "Explicit structures: More code, but faster"
+       ],
+       layer: None }
+  ];
+
+  #{ symptom: "Performance cliff: " ++ int_to_string(slowdown) ++ "x slower than expected",
+     whys: whys,
+     rootCause: "Design tradeoff between ease of use and performance",
+     rootLayer: AST,
+     recommendation: "Use hash-based data structure for O(1) lookups instead of O(n) scans" }
+}
+
+/// Generic Five Whys analysis.
+pub fn analyze(stability_factor: StabilityFactor) -> AnalysisResult {
+  match stability_factor {
+    TypeInstability(_reassignments) =>
+      // Simplified — would track actual types in a full implementation.
+      analyze_type_mismatch("x", TyInt, TyString, zero_loc()),
+    MutableState(_mutations, _readers) =>
+      analyze_mutation_impact("counter", zero_loc(), []),
+    NullPropagation(depth) =>
+      analyze_null_cascade(zero_loc(), depth),
+    AlgorithmComplexity(time_ms) =>
+      analyze_performance_issue("operation", time_ms, 10.0),
+    _ =>
+      #{ symptom: "Unknown issue",
+         whys: [],
+         rootCause: "Needs analysis",
+         rootLayer: Runtime,
+         recommendation: "Investigate further" }
+  }
+}
+
+fn layer_str(layer: Option<Layer>) -> String {
+  match layer {
+    Some(Runtime) => " [Runtime]",
+    Some(Semantics) => " [Semantics]",
+    Some(AST) => " [AST]",
+    Some(Parser) => " [Parser]",
+    Some(Grammar) => " [Grammar]",
+    None => ""
+  }
+}
+
+/// Format Five Whys analysis for display.
+pub fn format_analysis(result: AnalysisResult) -> String {
+  let mut lines = [];
+  lines = lines ++ ["\n🔍 FIVE WHYS ROOT CAUSE ANALYSIS\n"];
+  lines = lines ++ ["Symptom: " ++ result.symptom ++ "\n"];
+
+  let whys = result.whys;
+  let mut i = 0;
+  let n = len(whys);
+  while i < n {
+    let why = whys[i];
+    let layer_s = layer_str(why.layer);
+    lines = lines ++ ["WHY " ++ int_to_string(i + 1) ++ ":" ++ layer_s ++ " " ++ why.question];
+    lines = lines ++ ["  → " ++ why.answer];
+
+    let ev = why.evidence;
+    let m = len(ev);
+    if m > 0 {
+      let mut k = 0;
+      while k < m {
+        lines = lines ++ ["     • " ++ ev[k]];
+        k = k + 1;
+      }
+    }
+    lines = lines ++ [""];
+    i = i + 1;
+  }
+
+  lines = lines ++ ["ROOT CAUSE: " ++ result.rootCause];
+  lines = lines ++ ["\n💡 RECOMMENDATION: " ++ result.recommendation];
+
+  join(lines, "\n")
+}
