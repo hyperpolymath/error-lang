@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: MPL-2.0
+// Dom.affine — minimal virtual-DOM bindings for the Error-Lang Studio IDE.
+//
+// Written fresh for error-lang (MPL-2.0). This is NOT derived from
+// hyperpolymath/affinescript-dom, which is AGPL-3.0-or-later and therefore
+// licence-incompatible with this MPL-2.0 estate. The pieces here are (a) FFI
+// `extern fn` declarations over the host DOM shim (ide/src/*.js) — function
+// signatures, not copyrightable expression — and (b) a small, independently
+// authored vnode builder + realiser.
+//
+// Event model (affine / host-runtime friendly): a vnode carries event bindings
+// as (event-name, handler-id) string pairs rather than typed closures. The host
+// bridge (Main) maps a handler-id back to a Msg and feeds the TEA run loop, so
+// the View stays a pure `Model -> VNode` function with no embedded closures.
+
+module Dom;
+
+use prelude::*;
+
+// ---- host DOM externs (opaque Int node handles) ----
+pub extern fn dom_query_selector(selector: String) -> Int;
+pub extern fn dom_create_element(tag: String) -> Int;
+pub extern fn dom_create_text_node(content: String) -> Int;
+pub extern fn dom_append_child(parent: Int, child: Int) -> Unit;
+pub extern fn dom_set_attribute(el: Int, name: String, value: String) -> Unit;
+pub extern fn dom_clear_children(el: Int) -> Unit;
+pub extern fn dom_bind_event(el: Int, event: String, handler_id: String) -> Unit;
+
+// ---- virtual nodes ----
+// VElem(tag, attrs, events, children); events are (event-name, handler-id).
+pub enum VNode {
+  VElem(String, [(String, String)], [(String, String)], [VNode]),
+  VText(String)
+}
+
+pub fn text(content: String) -> VNode {
+  VText(content)
+}
+
+pub fn h(tag: String, attrs: [(String, String)], children: [VNode]) -> VNode {
+  VElem(tag, attrs, [], children)
+}
+
+// element with event bindings, e.g. h_on("button", [("class","btn")], [("click","stop")], [...])
+pub fn h_on(tag: String, attrs: [(String, String)], events: [(String, String)], children: [VNode]) -> VNode {
+  VElem(tag, attrs, events, children)
+}
+
+// ---- realise a vnode into a host DOM node ----
+pub fn render(vnode: VNode) -> Int {
+  match vnode {
+    VText(s) => dom_create_text_node(s),
+    VElem(tag, attrs, events, children) => {
+      let el = dom_create_element(tag);
+      for a in attrs {
+        let (name, value) = a;
+        dom_set_attribute(el, name, value);
+      }
+      for ev in events {
+        let (name, hid) = ev;
+        dom_bind_event(el, name, hid);
+      }
+      for c in children {
+        dom_append_child(el, render(c));
+      }
+      el
+    }
+  }
+}
+
+// replace the contents of `selector` with `vnode`
+pub fn mount(selector: String, vnode: VNode) -> Unit {
+  let root = dom_query_selector(selector);
+  dom_clear_children(root);
+  dom_append_child(root, render(vnode))
+}

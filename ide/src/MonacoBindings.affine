@@ -1,0 +1,232 @@
+// SPDX-License-Identifier: MPL-2.0
+// MonacoBindings.affine — Monaco Editor bindings for the Error-Lang Studio IDE.
+// Ported from ide/src/MonacoBindings.res (ReScript FFI → AffineScript externs).
+// Author: Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+//
+// ── Port conventions (mirror Dom.affine's extern style) ───────────────────
+//   * Monaco is a JS library loaded at runtime (esm.sh / AMD) and reached via
+//     ide/src/MonacoInterop.js. ReScript `@module("./MonacoInterop.js") external`
+//     declarations -> AffineScript `pub extern fn` over opaque `Int` handles.
+//   * Opaque ReScript types `editor` / `textModel` / `contentChangeEvent`
+//     become opaque `Int` handles (the host bridge owns the real objects;
+//     AffineScript only passes the handle through). `Dom.element` argument to
+//     `createEditor` -> an `Int` DOM-node handle (matches Dom.affine).
+//   * ReScript records with primitive fields (`monacoPosition`, `monacoRange`,
+//     `decorationOptions`, `decoration`, `cursorPositionChangeEvent`,
+//     `markerData`, `editorOptions`) -> `pub struct` of primitives.
+//   * `markerSeverity = int` -> `Int` directly (used as a struct field type).
+//   * Nested JS-object option fields in `editorOptions`
+//     (`minimap: {"enabled": bool}`, `bracketPairColorization`,
+//     `padding: {"top": int}`) are FLATTENED to primitive struct fields
+//     (`minimapEnabled: Bool`, `bracketPairColorization: Bool`,
+//     `paddingTop: Int`) — anonymous JS object types are not expressible as
+//     AffineScript structs, and the bridge reads the flattened primitives.
+//
+// ── Faithfulness notes ────────────────────────────────────────────────────
+//   * Every extern operation from MonacoBindings.res is preserved with the
+//     same name and the same argument/return arity (handles in place of opaque
+//     types). The high-level helpers `makeDefaultOptions`,
+//     `themeToMonacoTheme`, `makeErrorMarker`, `makeWarningMarker` are ported
+//     verbatim (identical theme-id mapping strings, identical marker `source`
+//     strings, identical default option values).
+//   * `decoration` / `decorationOptions` structs are declared faithfully even
+//     though no extern in the .res consumes them directly (Monaco decorations
+//     are applied host-side); kept for parity with the source.
+//   * Runtime behaviour of Monaco itself is host-side only; these are
+//     typecheck-level extern signatures (the JS shim provides the bodies).
+
+module MonacoBindings;
+
+use prelude::*;
+
+// ── opaque handles ─────────────────────────────────────────────────────────
+// Monaco `editor` instance, `textModel`, and the opaque `contentChangeEvent`
+// are host objects referenced by integer handle (mirrors Dom.affine nodes).
+// (`editor` handle == `Int`, `textModel` handle == `Int`, etc.)
+
+// Monaco position
+pub struct MonacoPosition {
+  lineNumber: Int,
+  column: Int
+}
+
+// Monaco range
+pub struct MonacoRange {
+  startLineNumber: Int,
+  startColumn: Int,
+  endLineNumber: Int,
+  endColumn: Int
+}
+
+// Decoration options
+pub struct DecorationOptions {
+  isWholeLine: Bool,
+  className: String,
+  glyphMarginClassName: String
+}
+
+// Decoration description
+pub struct Decoration {
+  range: MonacoRange,
+  options: DecorationOptions
+}
+
+// Editor creation options.
+// JS object option fields flattened to primitives (see header):
+//   minimap.enabled               -> minimapEnabled
+//   bracketPairColorization.enabled -> bracketPairColorization
+//   padding.top                   -> paddingTop
+pub struct EditorOptions {
+  value: String,
+  language: String,
+  theme: String,
+  fontSize: Int,
+  minimapEnabled: Bool,
+  lineNumbers: String,
+  renderWhitespace: String,
+  automaticLayout: Bool,
+  scrollBeyondLastLine: Bool,
+  wordWrap: String,
+  tabSize: Int,
+  insertSpaces: Bool,
+  glyphMargin: Bool,
+  folding: Bool,
+  bracketPairColorization: Bool,
+  paddingTop: Int
+}
+
+// Cursor position change event from Monaco
+pub struct CursorPositionChangeEvent {
+  position: MonacoPosition
+}
+
+// Marker data for error/warning squiggles. `severity` is `markerSeverity`
+// (an Int in the .res).
+pub struct MarkerData {
+  severity: Int,
+  message: String,
+  startLineNumber: Int,
+  startColumn: Int,
+  endLineNumber: Int,
+  endColumn: Int,
+  source: String
+}
+
+// ============================================
+// External bindings (FFI to MonacoInterop.js)
+// Opaque `editor`/`textModel`/`contentChangeEvent` -> `Int` handles;
+// `Dom.element` -> `Int` node handle.
+// ============================================
+
+// createEditor(container_node, options) -> editor handle
+pub extern fn monaco_create_editor(container: Int, options: EditorOptions) -> Int;
+
+pub extern fn monaco_dispose_editor(editor: Int) -> Unit;
+
+pub extern fn monaco_set_editor_value(editor: Int, value: String) -> Unit;
+
+pub extern fn monaco_get_editor_value(editor: Int) -> String;
+
+pub extern fn monaco_set_editor_theme(theme: String) -> Unit;
+
+pub extern fn monaco_set_editor_font_size(editor: Int, size: Int) -> Unit;
+
+// onDidChangeContent(editor, handler_id) — the host bridge maps handler_id
+// back to a Msg (MonacoContentChanged); closures are not embedded (parity
+// with Dom.affine's event model).
+pub extern fn monaco_on_did_change_content(editor: Int, handler_id: String) -> Unit;
+
+// onDidChangeCursorPosition(editor, handler_id) -> bridge maps to
+// MonacoCursorMoved(line, column).
+pub extern fn monaco_on_did_change_cursor_position(editor: Int, handler_id: String) -> Unit;
+
+pub extern fn monaco_set_model_markers(editor: Int, markers: [MarkerData]) -> Unit;
+
+pub extern fn monaco_register_error_lang_language() -> Unit;
+
+pub extern fn monaco_register_error_lang_themes() -> Unit;
+
+pub extern fn monaco_reveal_line_in_center(editor: Int, line: Int) -> Unit;
+
+pub extern fn monaco_set_position(editor: Int, position: MonacoPosition) -> Unit;
+
+pub extern fn monaco_focus_editor(editor: Int) -> Unit;
+
+pub extern fn monaco_get_marker_severity_error() -> Int;
+
+pub extern fn monaco_get_marker_severity_warning() -> Int;
+
+pub extern fn monaco_get_marker_severity_info() -> Int;
+
+// ============================================
+// High-level helpers
+// ============================================
+
+// Default editor options for Error-Lang (mirrors MonacoBindings.res
+// `makeDefaultOptions`; nested JS-object fields flattened to primitives).
+pub fn make_default_options(code: String, theme: String, font_size: Int) -> EditorOptions {
+  #{
+    value: code,
+    language: "error-lang",
+    theme: theme,
+    fontSize: font_size,
+    minimapEnabled: false,
+    lineNumbers: "on",
+    renderWhitespace: "selection",
+    automaticLayout: true,
+    scrollBeyondLastLine: false,
+    wordWrap: "off",
+    tabSize: 4,
+    insertSpaces: true,
+    glyphMargin: true,
+    folding: true,
+    bracketPairColorization: true,
+    paddingTop: 8
+  }
+}
+
+// Map IDE theme to Monaco theme ID (identical mapping to the .res).
+pub fn theme_to_monaco_theme(theme: String) -> String {
+  if theme == "light" { "error-lang-light" }
+  else if theme == "dark" { "error-lang-dark" }
+  else if theme == "highcontrast" { "hc-black" }
+  else { "error-lang-dark" }
+}
+
+// Create error marker for parse errors (source "error-lang").
+pub fn make_error_marker(
+  start_line: Int,
+  start_col: Int,
+  end_line: Int,
+  end_col: Int,
+  message: String
+) -> MarkerData {
+  #{
+    severity: monaco_get_marker_severity_error(),
+    message: message,
+    startLineNumber: start_line,
+    startColumn: start_col,
+    endLineNumber: end_line,
+    endColumn: end_col,
+    source: "error-lang"
+  }
+}
+
+// Create warning marker for stability issues (source "error-lang-stability").
+pub fn make_warning_marker(
+  start_line: Int,
+  start_col: Int,
+  end_line: Int,
+  end_col: Int,
+  message: String
+) -> MarkerData {
+  #{
+    severity: monaco_get_marker_severity_warning(),
+    message: message,
+    startLineNumber: start_line,
+    startColumn: start_col,
+    endLineNumber: end_line,
+    endColumn: end_col,
+    source: "error-lang-stability"
+  }
+}

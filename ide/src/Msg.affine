@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: MPL-2.0
+// Msg.affine — event messages for the Error-Lang Studio IDE.
+// Ported from ide/src/Msg.res (ReScript-TEA → AffineScript).
+//
+// ── Port conventions ──────────────────────────────────────────────────────
+//   * `open Model` -> `use Model::*;` (Msg is a leaf that depends only on the
+//     Model enums `Layer`/`Panel`/`Theme` and `Position`).
+//   * ReScript inline-record variant payloads -> positional constructor args:
+//       SelectionChanged({start, end_})         -> SelectionChanged(Position, Position)
+//       HighlightCode({start, end_})            -> HighlightCode(Int, Int)
+//       StabilityAnalyzed({score, factors})     -> StabilityAnalyzed(Int, [String])
+//       ShowRipple({source, affected})          -> ShowRipple(Int, [Int])
+//       ShowCascade({path})                     -> ShowCascade([Int])
+//   * `array<T>` -> `[T]`. All payload types are primitive / Model enums, so
+//     no variant collides with the reserved `Int`/`Float`/`String`/`Bool`.
+//
+// ── Faithfulness notes ────────────────────────────────────────────────────
+//   * Exactly the same message set, same payload shapes, same comment grouping
+//     as Msg.res. This enum is consumed by Update.affine's `update`.
+
+module Msg;
+
+use prelude::*;
+use Model::*;
+
+pub enum Msg {
+  // Code editing
+  CodeChanged(String),
+  CursorMoved(Position),
+  // SelectionChanged({start, end_}) — inline record -> positional (start, end)
+  SelectionChanged(Position, Position),
+  // FileLoaded(filename, content)
+  FileLoaded(String, String),
+
+  // Compilation
+  CompileCode,
+  // CompilationSuccess(AST serialized)
+  CompilationSuccess(String),
+  // CompilationFailure(errors)
+  CompilationFailure([String]),
+
+  // Execution
+  RunProgram,
+  StepProgram,
+  PauseProgram,
+  StopProgram,
+  RuntimeOutput(String),
+  // ExecutionComplete(final stability score)
+  ExecutionComplete(Int),
+
+  // Layer navigation
+  NavigateToLayer(Layer),
+  // SelectASTNode(node ID)
+  SelectASTNode(String),
+  // HighlightCode({start, end_}) — inline record -> positional (start, end)
+  HighlightCode(Int, Int),
+
+  // Analysis
+  AnalyzeStability,
+  // StabilityAnalyzed({score, factors}) -> positional
+  StabilityAnalyzed(Int, [String]),
+  // RunFiveWhys(stability factor)
+  RunFiveWhys(String),
+  // FiveWhysComplete(analysis result)
+  FiveWhysComplete(String),
+  ExploreParadox(String),
+
+  // Visualization
+  // ShowRipple({source, affected}) -> positional
+  ShowRipple(Int, [Int]),
+  // ShowCascade({path}) -> positional
+  ShowCascade([Int]),
+  AnimateStability(Int),
+
+  // UI
+  SwitchPanel(Panel),
+  ChangeTheme(Theme),
+  ChangeFontSize(Int),
+  ToggleSidebar,
+
+  // Persistence
+  SaveCode,
+  LoadCode(String),
+  ExportProgram,
+
+  // Monaco editor
+  MonacoReady,
+  // MonacoContentChanged(new code from Monaco)
+  MonacoContentChanged(String),
+  // MonacoCursorMoved(line, column)
+  MonacoCursorMoved(Int, Int),
+
+  // Router integration (cadre-tea-router)
+  // RouteChanged(URL path)
+  RouteChanged(String),
+  // NavigateTo(trigger navigation)
+  NavigateTo(String)
+}

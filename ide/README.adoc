@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: CC-BY-SA-4.0
+// SPDX-License-Identifier: MPL-2.0
 // Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 = Error-Lang Studio: The Language Stabilizer IDE
 :toc:
@@ -53,16 +53,21 @@ Error-Lang Studio follows The Elm Architecture (TEA):
 ```
 ide/
 ├── src/
-│   ├── Model.res          # Application state
-│   ├── Msg.res            # Event messages
-│   ├── Update.res         # State transitions
-│   ├── View.res           # UI rendering
-│   ├── Main.res           # Entry point
-│   └── styles.css         # Styles
+│   ├── Model.affine          # Application state
+│   ├── Msg.affine            # Event messages
+│   ├── Update.affine         # State transitions
+│   ├── View.affine           # UI rendering
+│   ├── Main.affine           # Entry point + TEA run-loop + event bridge
+│   ├── Dom.affine            # Virtual-DOM bindings (MPL-2.0)
+│   ├── MonacoBindings.affine # Monaco editor externs
+│   ├── host.js               # Host shim: backs the externs, drives the loop
+│   ├── MonacoInterop.js      # Monaco Editor glue (host-side)
+│   ├── monaco-setup.js       # Monaco bootstrap (host-side)
+│   ├── Main.js               # Generated bundle (deno task build:affine)
+│   └── styles.css            # Styles
 ├── public/                # Static assets
-├── index.html             # HTML template
-├── package.json           # Dependencies
-├── rescript.json          # ReScript config
+├── index.html             # HTML template (loads src/host.js)
+├── deno.json              # Tasks + deps (Deno)
 ├── vite.config.js         # Build config
 ├── ARCHITECTURE.adoc      # Architecture design
 ├── INTEGRATION.adoc       # Ecosystem integration
@@ -73,30 +78,26 @@ ide/
 
 === Prerequisites
 
-* Node.js 18+ (for build tools)
-* npm or yarn
-
-=== Setup
-
-```bash
-cd ide
-npm install
-```
+* Deno (runtime + task runner)
+* The AffineScript compiler on `PATH` (`affinescript`) — see
+  `scripts/install-affinescript-toolchain.sh` in the repo root
 
 === Development Mode
 
 ```bash
-npm run dev
+cd ide
+deno task dev
 ```
 
-This starts:
-- ReScript compiler in watch mode (compiles `.res` → `.res.js`)
-- Vite dev server on http://localhost:3000 (hot reload)
+This:
+- compiles `src/Main.affine` → `src/Main.js` (`affinescript compile --deno-esm`,
+  which inlines every module into one self-contained bundle), then
+- starts the Vite dev server on http://localhost:3000
 
 === Production Build
 
 ```bash
-npm run build
+deno task build
 ```
 
 Outputs to `dist/` directory - a fully static site deployable to:
