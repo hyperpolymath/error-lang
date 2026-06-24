@@ -1,0 +1,1150 @@
+// SPDX-License-Identifier: MPL-2.0
+// Parser.affine — error-tolerant recursive-descent parser for Error-Lang
+// (ported from compiler/src/Parser.res).
+//
+// AffineScript has no mutable struct fields and no record-spread, so the
+// imperative ReScript parser (which mutates `state.pos`/`state.diagnostics`
+// in place and uses `ref` cells for `left`/`args`/...) is rendered
+// functionally:
+//   * ParserState is an immutable struct; every consuming helper TAKES a
+//     ParserState and RETURNS a new one (full-record reconstruction).
+//   * Token/expression producers return a tuple `(Option<X>, ParserState)`
+//     — the result paired with the threaded state — and callers destructure
+//     `let (x, st) = f(st);`.
+//   * ReScript `ref` accumulators become `let mut` locals; loops that both
+//     accumulate and advance the cursor carry a `(acc, state)` (or
+//     `(left_opt, state)`) tuple through a `while`.
+//
+// Token/AST constructors come from the `Types` module. Note the two
+// reserved-keyword renames carried over from Types.affine: the literal token
+// variants are `Integer`/`FloatTok`/`StringTok` (not `Float`/`String`), and
+// inline-record AST variants are positional (e.g. `LetStmt(mutable_, name,
+// type_, value, loc)`).
+//
+// ── Faithfulness notes: documented gaps / simplifications vs Parser.res ──
+//   * expectCloseAngle's in-place token rewrite: when the lexer fuses a
+//     closing `>>` (GreaterGreater) that must close two nested type-arg
+//     lists (e.g. `Echo<Array<Int>>`), Parser.res MUTATES tokens[pos] to
+//     leave a `Greater` behind. With an immutable token array we reproduce
+//     this faithfully by REBUILDING the array (`set_token_at`) with the
+//     split `Greater` token at `pos`; behaviour is identical, cost is O(n)
+//     per split (type-arg lists are short, so this is negligible).
+//   * The `start` position of binary/call/index/member nodes: Parser.res
+//     computes it with `switch l { | IntLit(_, loc) => loc.start | _ =>
+//     currentLoc(state).start }` — i.e. it only recovers a precise start
+//     when the left operand is an integer literal (the Call site also peeks
+//     `Ident`), otherwise it falls back to the *current* token. This is a
+//     pre-existing quirk of Parser.res; it is reproduced EXACTLY here (see
+//     `start_or_current` / `start_or_current_call`) rather than "fixed", to
+//     keep node construction byte-for-byte faithful.
+//   * No omitted grammar: every production in Parser.res (ternary →
+//     logical-or → … → unary → postfix → primary, the full statement set
+//     incl. gutter-block error recovery, type-expression parsing, function/
+//     struct/main declarations, and the top-level `parse` driver) is ported.
+//   * `runTests`/Console code: none exists in Parser.res, so nothing to omit.
+
+module Parser;
+
+use prelude::*;
+use Types::*;
+
+// ============================================
+// Parser state
+// ============================================
+
+pub struct ParserState {
+  tokens: [Token],
+  pos: Int,
+  diagnostics: [Diagnostic],
+  runNumber: Int,
+  file: String
+}
+
+pub fn make(tokens: [Token], file: String, run_number: Int) -> ParserState {
+  #{ tokens: tokens, pos: 0, diagnostics: [], runNumber: run_number, file: file }
+}
+
+// Rebuild state advancing the cursor by one (bounded by token count).
+fn with_pos(s: ParserState, new_pos: Int) -> ParserState {
+  #{ tokens: s.tokens, pos: new_pos, diagnostics: s.diagnostics,
+     runNumber: s.runNumber, file: s.file }
+}
+
+// Replace tokens[idx] with `v`, returning a new state (used by the
+// GreaterGreater split — see header note).
+fn set_token_at(s: ParserState, idx: Int, v: Token) -> ParserState {
+  let mut out = [];
+  let mut i = 0;
+  let n = len(s.tokens);
+  while i < n {
+    if i == idx { out = out ++ [v]; } else { out = out ++ [s.tokens[i]]; }
+    i = i + 1;
+  }
+  #{ tokens: out, pos: s.pos, diagnostics: s.diagnostics,
+     runNumber: s.runNumber, file: s.file }
+}
+
+// ============================================
+// Cursor primitives (read-only: never rebuild state)
+// ============================================
+
+fn peek(s: ParserState) -> Option<Token> {
+  if s.pos < len(s.tokens) { Some(s.tokens[s.pos]) } else { None }
+}
+
+fn peek_ahead(s: ParserState, offset: Int) -> Option<Token> {
+  let idx = s.pos + offset;
+  if idx < len(s.tokens) { Some(s.tokens[idx]) } else { None }
+}
+
+// The token just consumed (Parser.res reads `state.tokens[state.pos - 1]`).
+fn prev_token(s: ParserState) -> Option<Token> {
+  let idx = s.pos - 1;
+  if idx >= 0 && idx < len(s.tokens) { Some(s.tokens[idx]) } else { None }
+}
+
+// Advance one token (returns just the new state; the consumed token, when
+// needed, is read via prev_token afterwards — mirrors ReScript `advance`).
+fn advance(s: ParserState) -> ParserState {
+  if s.pos < len(s.tokens) { with_pos(s, s.pos + 1) } else { s }
+}
+
+fn is_at_end(s: ParserState) -> Bool {
+  match peek(s) {
+    Some(tok) => match tok.type_ { EOF => true, _ => false },
+    None => true
+  }
+}
+
+fn check(s: ParserState, t: TokenType) -> Bool {
+  match peek(s) {
+    Some(tok) => tok.type_ == t,
+    None => false
+  }
+}
+
+// Consume if the current token is any of `ts` (ReScript `match_`/Array.some).
+fn match_any(s: ParserState, ts: [TokenType]) -> (Bool, ParserState) {
+  let mut st = s;
+  let mut matched = false;
+  let mut i = 0;
+  let n = len(ts);
+  while i < n && !matched {
+    if check(st, ts[i]) {
+      st = advance(st);
+      matched = true;
+    }
+    i = i + 1;
+  }
+  (matched, st)
+}
+
+fn skip_newlines(s: ParserState) -> ParserState {
+  let mut st = s;
+  while check(st, Newline) {
+    st = advance(st);
+  }
+  st
+}
+
+fn add_diagnostic(s: ParserState, code: ErrorCode, message: String, loc: Location) -> ParserState {
+  let diag = #{ code: code, message: message, loc: loc,
+                runNumber: s.runNumber, hint: None };
+  #{ tokens: s.tokens, pos: s.pos,
+     diagnostics: s.diagnostics ++ [diag],
+     runNumber: s.runNumber, file: s.file }
+}
+
+fn zero_pos() -> Position { #{ line: 0, column: 0, offset: 0 } }
+
+fn zero_loc(file: String) -> Location {
+  #{ start: zero_pos(), end_: zero_pos(), file: file }
+}
+
+fn current_loc(s: ParserState) -> Location {
+  match peek(s) {
+    Some(tok) => tok.loc,
+    None => zero_loc(s.file)
+  }
+}
+
+// Expect a token type; on success consume and return Ok(token); on failure
+// emit E0001 and return Err. (ReScript returns `result<token, unit>` but
+// every caller `->ignore`s it, so callers here just take the state.)
+fn expect(s: ParserState, t: TokenType, message: String) -> (Result<Token, ()>, ParserState) {
+  match peek(s) {
+    Some(tok) =>
+      if tok.type_ == t {
+        (Ok(tok), advance(s))
+      } else {
+        (Err(()), add_diagnostic(s, E0001, message, tok.loc))
+      },
+    None => (Err(()), add_diagnostic(s, E0001, message, zero_loc(s.file)))
+  }
+}
+
+// Discard the Result, keep the state (the common `expect(...)->ignore` use).
+fn expect_(s: ParserState, t: TokenType, message: String) -> ParserState {
+  let (_r, st) = expect(s, t, message);
+  st
+}
+
+// ============================================
+// Location helpers (mirror Parser.res start-position quirk; see header)
+// ============================================
+
+fn mk_loc(start: Position, end_: Position, file: String) -> Location {
+  #{ start: start, end_: end_, file: file }
+}
+
+// `switch l { | IntLit(_, loc) => loc.start | _ => current.start }`
+fn start_or_current(l: Expr, s: ParserState) -> Position {
+  match l {
+    IntLit(_n, loc) => loc.start,
+    _ => current_loc(s).start
+  }
+}
+
+// Call site additionally peeks `Ident`:
+// `| IntLit(_, loc) => loc.start | Ident(_, loc) => loc.start | _ => ...`
+fn start_or_current_call(l: Expr, s: ParserState) -> Position {
+  match l {
+    IntLit(_n, loc) => loc.start,
+    Ident(_nm, loc) => loc.start,
+    _ => current_loc(s).start
+  }
+}
+
+// ============================================
+// Expression parsing
+//   parseExpression → parseTernary → parseLogicalOr → parseLogicalAnd
+//   → parseEquality → parseComparison → parseTerm → parseFactor
+//   → parseUnary → parsePostfix → parsePrimary
+// Each returns (Option<Expr>, ParserState).
+// ============================================
+
+fn parse_expression(s: ParserState) -> (Option<Expr>, ParserState) {
+  parse_ternary(s)
+}
+
+fn parse_ternary(s: ParserState) -> (Option<Expr>, ParserState) {
+  let (left, s1) = parse_logical_or(s);
+  match left {
+    Some(cond) =>
+      if check(s1, Question) {
+        let start_loc = current_loc(s1);
+        let s2 = advance(s1); // ?
+        let (then_opt, s3) = parse_expression(s2);
+        match then_opt {
+          Some(then_) => {
+            let (got_colon, s4) = match_any(s3, [Colon]);
+            if got_colon {
+              let (else_opt, s5) = parse_expression(s4);
+              match else_opt {
+                Some(else_) => {
+                  let loc = mk_loc(start_loc.start, current_loc(s5).end_, s5.file);
+                  (Some(Ternary(cond, then_, else_, loc)), s5)
+                },
+                None => (Some(cond), s5)
+              }
+            } else {
+              (Some(cond), s4)
+            }
+          },
+          None => (Some(cond), s3)
+        }
+      } else {
+        (Some(cond), s1)
+      },
+    None => (left, s1)
+  }
+}
+
+// Shared left-associative binary loop: given an already-parsed `left`, while
+// the current token is one of `ops`, consume it, parse the rhs with `next`,
+// and fold into a Binary node whose op is `op_of(prevTokenType)`.
+fn binary_loop(
+  left0: Option<Expr>,
+  s0: ParserState,
+  ops: [TokenType],
+  op_of: TokenType -> BinaryOp,
+  next: ParserState -> (Option<Expr>, ParserState)
+) -> (Option<Expr>, ParserState) {
+  let mut left = left0;
+  let mut st = s0;
+  let mut go = true;
+  while go {
+    let has_left = match left { Some(_e) => true, None => false };
+    if !has_left { go = false; }
+    else {
+      let (matched, s_after) = match_any(st, ops);
+      if !matched {
+        st = s_after;
+        go = false;
+      } else {
+        let op = match prev_token(s_after) {
+          Some(t) => op_of(t.type_),
+          None => op_of(EOF)
+        };
+        let (right, s_rhs) = next(s_after);
+        match (left, right) {
+          (Some(l), Some(r)) => {
+            let loc = mk_loc(start_or_current(l, s_rhs), current_loc(s_rhs).end_, s_rhs.file);
+            left = Some(Binary(l, op, r, loc));
+            st = s_rhs;
+          },
+          _ => {
+            // Parser.res keeps `left` unchanged on a missing rhs but has
+            // already advanced past the operator; replicate that.
+            st = s_rhs;
+          }
+        }
+      }
+    }
+  }
+  (left, st)
+}
+
+fn parse_logical_or(s: ParserState) -> (Option<Expr>, ParserState) {
+  let (left, s1) = parse_logical_and(s);
+  binary_loop(left, s1, [Or], op_logical_or, parse_logical_and)
+}
+fn op_logical_or(_t: TokenType) -> BinaryOp { LOr }
+
+fn parse_logical_and(s: ParserState) -> (Option<Expr>, ParserState) {
+  let (left, s1) = parse_equality(s);
+  binary_loop(left, s1, [And], op_logical_and, parse_equality)
+}
+fn op_logical_and(_t: TokenType) -> BinaryOp { LAnd }
+
+fn parse_equality(s: ParserState) -> (Option<Expr>, ParserState) {
+  let (left, s1) = parse_comparison(s);
+  binary_loop(left, s1, [EqualEqual, BangEqual], op_equality, parse_comparison)
+}
+fn op_equality(t: TokenType) -> BinaryOp {
+  match t {
+    EqualEqual => Eq,
+    BangEqual => Neq,
+    _ => Eq
+  }
+}
+
+fn parse_comparison(s: ParserState) -> (Option<Expr>, ParserState) {
+  let (left, s1) = parse_term(s);
+  binary_loop(left, s1, [Less, Greater, LessEqual, GreaterEqual], op_comparison, parse_term)
+}
+fn op_comparison(t: TokenType) -> BinaryOp {
+  match t {
+    Less => Lt,
+    Greater => Gt,
+    LessEqual => Lte,
+    GreaterEqual => Gte,
+    _ => Lt
+  }
+}
+
+fn parse_term(s: ParserState) -> (Option<Expr>, ParserState) {
+  let (left, s1) = parse_factor(s);
+  binary_loop(left, s1, [Plus, Minus], op_term, parse_factor)
+}
+fn op_term(t: TokenType) -> BinaryOp {
+  match t {
+    Plus => Add,
+    Minus => Sub,
+    _ => Add
+  }
+}
+
+fn parse_factor(s: ParserState) -> (Option<Expr>, ParserState) {
+  let (left, s1) = parse_unary(s);
+  binary_loop(left, s1, [Star, Slash, Percent], op_factor, parse_unary)
+}
+fn op_factor(t: TokenType) -> BinaryOp {
+  match t {
+    Star => Mul,
+    Slash => Div,
+    Percent => Mod,
+    _ => Mul
+  }
+}
+
+fn parse_unary(s: ParserState) -> (Option<Expr>, ParserState) {
+  let (matched, s1) = match_any(s, [Minus, Not, Tilde]);
+  if matched {
+    let op_tok = match prev_token(s1) {
+      Some(t) => t,
+      None => #{ type_: Minus, lexeme: "-", loc: zero_loc(s1.file) }
+    };
+    let op = match op_tok.type_ {
+      Minus => Neg,
+      Not => LNot,
+      Tilde => BNot,
+      _ => Neg
+    };
+    let (right, s2) = parse_unary(s1);
+    match right {
+      Some(r) => {
+        let loc = mk_loc(op_tok.loc.start, current_loc(s2).end_, s2.file);
+        (Some(Unary(op, r, loc)), s2)
+      },
+      None => (None, s2)
+    }
+  } else {
+    parse_postfix(s)
+  }
+}
+
+fn parse_postfix(s: ParserState) -> (Option<Expr>, ParserState) {
+  let (left0, s0) = parse_primary(s);
+  let mut left = left0;
+  let mut st = s0;
+  let mut go = true;
+  while go {
+    let has_left = match left { Some(_e) => true, None => false };
+    if !has_left {
+      go = false;
+    } else if check(st, LParen) {
+      // Function call
+      let s1 = advance(st);
+      let s2 = skip_newlines(s1);
+      let (args, s3) = parse_arg_list(s2, RParen);
+      let s4 = skip_newlines(s3);
+      let s5 = expect_(s4, RParen, "Expected ')' after arguments");
+      match left {
+        Some(l) => {
+          let loc = mk_loc(start_or_current_call(l, s5), current_loc(s5).end_, s5.file);
+          left = Some(Call(l, args, loc));
+          st = s5;
+        },
+        None => { st = s5; }
+      }
+    } else if check(st, LBracket) {
+      // Index
+      let s1 = advance(st);
+      let s2 = skip_newlines(s1);
+      let (idx_opt, s3) = parse_expression(s2);
+      match idx_opt {
+        Some(idx) => {
+          let s4 = skip_newlines(s3);
+          let s5 = expect_(s4, RBracket, "Expected ']' after index");
+          match left {
+            Some(l) => {
+              let loc = mk_loc(start_or_current(l, s5), current_loc(s5).end_, s5.file);
+              left = Some(Index(l, idx, loc));
+              st = s5;
+            },
+            None => { st = s5; }
+          }
+        },
+        None => { st = s3; }
+      }
+    } else if check(st, Dot) {
+      // Member access
+      let s1 = advance(st);
+      match peek(s1) {
+        Some(tok) => match tok.type_ {
+          Identifier(name) => {
+            let member_loc = tok.loc;
+            let s2 = advance(s1);
+            match left {
+              Some(l) => {
+                let loc = mk_loc(start_or_current(l, s2), member_loc.end_, s2.file);
+                left = Some(Member(l, name, loc));
+                st = s2;
+              },
+              None => { st = s2; }
+            }
+          },
+          _ => {
+            st = add_diagnostic(s1, E0001, "Expected identifier after '.'", current_loc(s1));
+            go = false;
+          }
+        },
+        None => {
+          st = add_diagnostic(s1, E0001, "Expected identifier after '.'", current_loc(s1));
+          go = false;
+        }
+      }
+    } else {
+      go = false;
+    }
+  }
+  (left, st)
+}
+
+// Parse a comma-separated expression list up to (but not consuming) `closer`.
+// Mirrors the repeated `parseExpression` + `while match_(Comma)` blocks used
+// for call args, array elements, and print args.
+fn parse_arg_list(s: ParserState, closer: TokenType) -> ([Expr], ParserState) {
+  let mut args = [];
+  let mut st = s;
+  if !check(st, closer) {
+    let (first, s1) = parse_expression(st);
+    args = match first {
+      Some(e) => args ++ [e],
+      None => args
+    };
+    st = s1;
+    let mut go = true;
+    while go {
+      let (got_comma, s_c) = match_any(st, [Comma]);
+      if !got_comma {
+        st = s_c;
+        go = false;
+      } else {
+        let s_sn = skip_newlines(s_c);
+        let (e_opt, s_e) = parse_expression(s_sn);
+        args = match e_opt {
+          Some(e) => args ++ [e],
+          None => args
+        };
+        st = s_e;
+      }
+    }
+  }
+  // `return` (not a bare trailing tuple): an if-statement immediately
+  // followed by a tuple tail trips an AffineScript checker bug (E0104
+  // "Expected a function, got Unit", no span) — the `()` of the if is
+  // applied to the tuple. Verified minimal repro; `return` sidesteps it.
+  return (args, st);
+}
+
+fn parse_primary(s: ParserState) -> (Option<Expr>, ParserState) {
+  match peek(s) {
+    Some(tok) => parse_primary_tok(s, tok),
+    None => (None, s)
+  }
+}
+
+fn parse_primary_tok(s: ParserState, tok: Token) -> (Option<Expr>, ParserState) {
+  let loc = tok.loc;
+  match tok.type_ {
+    Integer(n) => (Some(IntLit(n, loc)), advance(s)),
+    FloatTok(f) => (Some(FloatLit(f, loc)), advance(s)),
+    StringTok(str) => (Some(StringLit(str, loc)), advance(s)),
+    True => (Some(BoolLit(true, loc)), advance(s)),
+    False => (Some(BoolLit(false, loc)), advance(s)),
+    Nil => (Some(NilLit(loc)), advance(s)),
+    Identifier(name) => (Some(Ident(name, loc)), advance(s)),
+    LBracket => parse_array_literal(s, loc),
+    LParen => parse_grouped(s),
+    Fn => parse_lambda(s, loc),
+    _ => {
+      let s1 = add_diagnostic(s, E0001, "Unexpected token '" ++ tok.lexeme ++ "'", tok.loc);
+      (None, s1)
+    }
+  }
+}
+
+fn parse_array_literal(s: ParserState, start_loc: Location) -> (Option<Expr>, ParserState) {
+  let s1 = advance(s); // [
+  let s2 = skip_newlines(s1);
+  let (elems, s3) = parse_arg_list(s2, RBracket);
+  let s4 = skip_newlines(s3);
+  let s5 = expect_(s4, RBracket, "Expected ']' after array elements");
+  let loc = mk_loc(start_loc.start, current_loc(s5).end_, s5.file);
+  (Some(Array(elems, loc)), s5)
+}
+
+fn parse_grouped(s: ParserState) -> (Option<Expr>, ParserState) {
+  let s1 = advance(s); // (
+  let s2 = skip_newlines(s1);
+  let (expr, s3) = parse_expression(s2);
+  let s4 = skip_newlines(s3);
+  let s5 = expect_(s4, RParen, "Expected ')' after expression");
+  (expr, s5)
+}
+
+fn parse_lambda(s: ParserState, start_loc: Location) -> (Option<Expr>, ParserState) {
+  let s1 = advance(s); // fn
+  let s2 = expect_(s1, LParen, "Expected '(' after 'fn'");
+  let (params, s3) = parse_lambda_params(s2);
+  let s4 = expect_(s3, RParen, "Expected ')' after parameters");
+  let (got_arrow, s5) = match_any(s4, [Arrow]);
+  if got_arrow {
+    let (body_opt, s6) = parse_expression(s5);
+    match body_opt {
+      Some(body) => {
+        let loc = mk_loc(start_loc.start, current_loc(s6).end_, s6.file);
+        (Some(Lambda(params, None, LambdaExpr(body), loc)), s6)
+      },
+      None => (None, s6)
+    }
+  } else {
+    // Block body (future) — Parser.res returns None here.
+    (None, s5)
+  }
+}
+
+// Lambda params: untyped identifiers (Parser.res `type_: None`).
+fn parse_lambda_params(s: ParserState) -> ([Param], ParserState) {
+  let mut params = [];
+  let mut st = skip_newlines(s);
+  if !check(st, RParen) {
+    let (p0, st0) = lambda_param_at(params, st);
+    params = p0;
+    st = st0;
+    let mut go = true;
+    while go {
+      let (got_comma, s_c) = match_any(st, [Comma]);
+      if !got_comma {
+        st = s_c;
+        go = false;
+      } else {
+        let s_sn = skip_newlines(s_c);
+        let (pn, stn) = lambda_param_at(params, s_sn);
+        params = pn;
+        st = stn;
+      }
+    }
+  }
+  return (params, st); // `return` works around the if-then-tuple checker bug
+}
+
+// If the current token is an identifier, append an untyped Param and advance;
+// otherwise leave both unchanged. Returns (params, state).
+fn lambda_param_at(params: [Param], s: ParserState) -> ([Param], ParserState) {
+  match peek(s) {
+    Some(tok) => match tok.type_ {
+      Identifier(name) => (params ++ [#{ name: name, type_: None, loc: tok.loc }], advance(s)),
+      _ => (params, s)
+    },
+    None => (params, s)
+  }
+}
+
+// ============================================
+// Type-annotation parsing
+// ============================================
+
+// Consume a closing '>' for a type-arg list. The lexer fuses `>>` into a
+// single GreaterGreater; if a closing angle sits against an enclosing one we
+// split it in place (rebuild the token array, leaving a `Greater` at pos).
+fn expect_close_angle(s: ParserState) -> ParserState {
+  match peek(s) {
+    Some(tok) => match tok.type_ {
+      Greater => advance(s),
+      GreaterGreater => {
+        let split = #{ type_: Greater, lexeme: ">", loc: tok.loc };
+        set_token_at(s, s.pos, split)
+      },
+      _ => add_diagnostic(s, E0006, "Expected '>' to close type arguments", tok.loc)
+    },
+    None => s
+  }
+}
+
+// Optional `<A>` / `<A, B>`. Returns ((first, second), state).
+fn parse_type_args(s: ParserState) -> ((Option<TypeExpr>, Option<TypeExpr>), ParserState) {
+  if check(s, Less) {
+    let s1 = advance(s);
+    let (first, s2) = parse_type_expr(s1);
+    let (got_comma, s3) = match_any(s2, [Comma]);
+    let (second, s4) = if got_comma {
+      parse_type_expr(s3)
+    } else {
+      (None, s3)
+    };
+    let s5 = expect_close_angle(s4);
+    ((first, second), s5)
+  } else {
+    ((None, None), s)
+  }
+}
+
+fn parse_type_expr(s: ParserState) -> (Option<TypeExpr>, ParserState) {
+  match peek(s) {
+    Some(tok) => match tok.type_ {
+      TInt => (Some(TyInt), advance(s)),
+      TFloat => (Some(TyFloat), advance(s)),
+      TString => (Some(TyString), advance(s)),
+      TBool => (Some(TyBool), advance(s)),
+      TArray => {
+        let s1 = advance(s);
+        let ((first, _second), s2) = parse_type_args(s1);
+        match first {
+          Some(inner) => (Some(TyArray(inner)), s2),
+          // Bare `Array`: default element type to `Any`.
+          None => (Some(TyArray(TyIdent("Any"))), s2)
+        }
+      },
+      TEcho => {
+        let s1 = advance(s);
+        let ((a, b), s2) = parse_type_args(s1);
+        (Some(TyEcho(a, b)), s2)
+      },
+      TEchoR => {
+        let s1 = advance(s);
+        let ((a, b), s2) = parse_type_args(s1);
+        (Some(TyEchoResidue(a, b)), s2)
+      },
+      Identifier(name) => (Some(TyIdent(name)), advance(s)),
+      _ => (None, s)
+    },
+    None => (None, s)
+  }
+}
+
+// Optional `: Type` annotation (used after let-names and parameter names).
+fn parse_optional_type(s: ParserState) -> (Option<TypeExpr>, ParserState) {
+  let (got_colon, s1) = match_any(s, [Colon]);
+  if got_colon {
+    parse_type_expr(s1)
+  } else {
+    (None, s1)
+  }
+}
+
+// ============================================
+// Statement parsing
+// ============================================
+
+fn parse_statement(s: ParserState) -> (Option<Stmt>, ParserState) {
+  let s0 = skip_newlines(s);
+  match peek(s0) {
+    Some(tok) => parse_statement_tok(s0, tok),
+    None => (None, s0)
+  }
+}
+
+fn parse_statement_tok(s: ParserState, tok: Token) -> (Option<Stmt>, ParserState) {
+  let start_loc = tok.loc;
+  match tok.type_ {
+    Let => parse_let(s, start_loc),
+    If => parse_if(s, start_loc),
+    While => parse_while(s, start_loc),
+    For => parse_for(s, start_loc),
+    Return => parse_return(s, start_loc),
+    Break => (Some(BreakStmt(start_loc)), advance(s)),
+    Continue => (Some(ContinueStmt(start_loc)), advance(s)),
+    Identifier(name) =>
+      if name == "print" {
+        parse_print(s, start_loc, false)
+      } else if name == "println" {
+        parse_print(s, start_loc, true)
+      } else {
+        parse_expr_stmt(s)
+      },
+    Gutter => parse_gutter(s, start_loc),
+    _ => parse_expr_stmt(s)
+  }
+}
+
+fn parse_let(s: ParserState, start_loc: Location) -> (Option<Stmt>, ParserState) {
+  let s1 = advance(s); // let
+  let (mutable_, s2) = match_any(s1, [Mutable]);
+  match peek(s2) {
+    Some(tok) => match tok.type_ {
+      Identifier(name) => {
+        let s3 = advance(s2);
+        let (type_, s4) = parse_optional_type(s3);
+        let s5 = expect_(s4, Equal, "Expected '=' after variable name");
+        let (value_opt, s6) = parse_expression(s5);
+        match value_opt {
+          Some(value) => {
+            let loc = mk_loc(start_loc.start, current_loc(s6).end_, s6.file);
+            (Some(LetStmt(mutable_, name, type_, value, loc)), s6)
+          },
+          None => (None, s6)
+        }
+      },
+      _ => {
+        let s3 = add_diagnostic(s2, E0001, "Expected identifier after 'let'", current_loc(s2));
+        (None, s3)
+      }
+    },
+    None => {
+      let s3 = add_diagnostic(s2, E0001, "Expected identifier after 'let'", current_loc(s2));
+      (None, s3)
+    }
+  }
+}
+
+fn parse_if(s: ParserState, start_loc: Location) -> (Option<Stmt>, ParserState) {
+  let s1 = advance(s); // if
+  let (cond_opt, s2) = parse_expression(s1);
+  match cond_opt {
+    Some(cond) => {
+      let s3 = skip_newlines(s2);
+      let (then_, s4) = parse_block(s3);
+      // elseif chains
+      let (elseifs, s5) = parse_elseifs(s4);
+      // optional else
+      let (else_, s6) = if check(s5, Else) {
+        let s_e = advance(s5);
+        let s_e2 = skip_newlines(s_e);
+        let (body, s_e3) = parse_block(s_e2);
+        (Some(body), s_e3)
+      } else {
+        (None, s5)
+      };
+      let loc = mk_loc(start_loc.start, current_loc(s6).end_, s6.file);
+      (Some(IfStmt(cond, then_, elseifs, else_, loc)), s6)
+    },
+    None => (None, s2)
+  }
+}
+
+fn parse_elseifs(s: ParserState) -> ([(Expr, [Stmt])], ParserState) {
+  let mut elseifs = [];
+  let mut st = s;
+  let mut go = true;
+  while go {
+    if check(st, Elseif) {
+      let s1 = advance(st);
+      let (elif_cond_opt, s2) = parse_expression(s1);
+      match elif_cond_opt {
+        Some(elif_cond) => {
+          let s3 = skip_newlines(s2);
+          let (elif_body, s4) = parse_block(s3);
+          elseifs = elseifs ++ [(elif_cond, elif_body)];
+          st = s4;
+        },
+        None => { st = s2; }
+      }
+    } else {
+      go = false;
+    }
+  }
+  (elseifs, st)
+}
+
+fn parse_while(s: ParserState, start_loc: Location) -> (Option<Stmt>, ParserState) {
+  let s1 = advance(s); // while
+  let (cond_opt, s2) = parse_expression(s1);
+  match cond_opt {
+    Some(cond) => {
+      let s3 = skip_newlines(s2);
+      let (body, s4) = parse_block(s3);
+      let loc = mk_loc(start_loc.start, current_loc(s4).end_, s4.file);
+      (Some(WhileStmt(cond, body, loc)), s4)
+    },
+    None => (None, s2)
+  }
+}
+
+fn parse_for(s: ParserState, start_loc: Location) -> (Option<Stmt>, ParserState) {
+  let s1 = advance(s); // for
+  match peek(s1) {
+    Some(tok) => match tok.type_ {
+      Identifier(var) => {
+        let s2 = advance(s1);
+        let s3 = expect_(s2, In, "Expected 'in' after loop variable");
+        let (iter_opt, s4) = parse_expression(s3);
+        match iter_opt {
+          Some(iter) => {
+            let s5 = skip_newlines(s4);
+            let (body, s6) = parse_block(s5);
+            let loc = mk_loc(start_loc.start, current_loc(s6).end_, s6.file);
+            (Some(ForStmt(var, iter, body, loc)), s6)
+          },
+          None => (None, s4)
+        }
+      },
+      _ => {
+        let s2 = add_diagnostic(s1, E0001, "Expected identifier after 'for'", current_loc(s1));
+        (None, s2)
+      }
+    },
+    None => {
+      let s2 = add_diagnostic(s1, E0001, "Expected identifier after 'for'", current_loc(s1));
+      (None, s2)
+    }
+  }
+}
+
+fn parse_return(s: ParserState, start_loc: Location) -> (Option<Stmt>, ParserState) {
+  let s1 = advance(s); // return
+  let (value, s2) = if check(s1, Newline) || check(s1, End) || check(s1, EOF) {
+    (None, s1)
+  } else {
+    parse_expression(s1)
+  };
+  let loc = mk_loc(start_loc.start, current_loc(s2).end_, s2.file);
+  (Some(ReturnStmt(value, loc)), s2)
+}
+
+// `is_println` distinguishes print vs println. NB: a parameter literally named
+// `println` shadows the `println` builtin, which trips the resolver's global
+// "Expected a function, got Unit" (E0104, no span) — so we avoid that name.
+fn parse_print(s: ParserState, start_loc: Location, is_println: Bool) -> (Option<Stmt>, ParserState) {
+  let s1 = advance(s); // print / println
+  let msg = if is_println { "Expected '(' after 'println'" } else { "Expected '(' after 'print'" };
+  let s2 = expect_(s1, LParen, msg);
+  let s3 = skip_newlines(s2);
+  let (args, s4) = parse_arg_list(s3, RParen);
+  let s5 = skip_newlines(s4);
+  let s6 = expect_(s5, RParen, "Expected ')' after arguments");
+  let loc = mk_loc(start_loc.start, current_loc(s6).end_, s6.file);
+  (Some(PrintStmt(is_println, args, loc)), s6)
+}
+
+// Gutter block — error-injection zone: swallow tokens until `end`, recover.
+fn parse_gutter(s: ParserState, start_loc: Location) -> (Option<Stmt>, ParserState) {
+  let s1 = advance(s); // gutter
+  let s2 = skip_newlines(s1);
+
+  let mut gutter_tokens = [];
+  let mut st = s2;
+  let mut scanning = true;
+  while scanning {
+    if !check(st, End) && !is_at_end(st) {
+      match peek(st) {
+        Some(tok) => {
+          gutter_tokens = gutter_tokens ++ [tok];
+          st = advance(st);
+        },
+        None => { scanning = false; }
+      }
+    } else {
+      scanning = false;
+    }
+  }
+
+  let (recovered, s3) = if check(st, End) {
+    (true, advance(st))
+  } else {
+    (false, add_diagnostic(st, E0005, "Missing 'end' for gutter block", start_loc))
+  };
+
+  let loc = mk_loc(start_loc.start, current_loc(s3).end_, s3.file);
+  (Some(GutterBlock(gutter_tokens, recovered, loc)), s3)
+}
+
+fn parse_expr_stmt(s: ParserState) -> (Option<Stmt>, ParserState) {
+  let (expr_opt, s1) = parse_expression(s);
+  match expr_opt {
+    Some(expr) => (Some(ExprStmt(expr)), s1),
+    None => {
+      // Skip bad token
+      let s2 = advance(s1);
+      (None, s2)
+    }
+  }
+}
+
+fn parse_block(s: ParserState) -> ([Stmt], ParserState) {
+  let mut stmts = [];
+  let mut st = skip_newlines(s);
+  let mut go = true;
+  while go {
+    if !check(st, End) && !check(st, Elseif) && !check(st, Else) && !is_at_end(st) {
+      let (stmt_opt, s1) = parse_statement(st);
+      stmts = match stmt_opt {
+        Some(stmt) => stmts ++ [stmt],
+        None => stmts
+      };
+      st = skip_newlines(s1);
+    } else {
+      go = false;
+    }
+  }
+  let st2 = if check(st, End) { advance(st) } else { st };
+  (stmts, st2)
+}
+
+// ============================================
+// Declaration parsing
+// ============================================
+
+fn parse_declaration(s: ParserState) -> (Option<Decl>, ParserState) {
+  let s0 = skip_newlines(s);
+  match peek(s0) {
+    Some(tok) => parse_declaration_tok(s0, tok),
+    None => (None, s0)
+  }
+}
+
+fn parse_declaration_tok(s: ParserState, tok: Token) -> (Option<Decl>, ParserState) {
+  let start_loc = tok.loc;
+  match tok.type_ {
+    Function => parse_function(s, start_loc),
+    Main => parse_main(s, start_loc),
+    Struct => parse_struct(s, start_loc),
+    _ => {
+      // Top-level statement
+      let (stmt_opt, s1) = parse_statement(s);
+      match stmt_opt {
+        Some(stmt) => (Some(StmtDecl(stmt)), s1),
+        None => (None, s1)
+      }
+    }
+  }
+}
+
+fn parse_function(s: ParserState, start_loc: Location) -> (Option<Decl>, ParserState) {
+  let s1 = advance(s); // function
+  match peek(s1) {
+    Some(tok) => match tok.type_ {
+      Identifier(name) => {
+        let s2 = advance(s1);
+        let s3 = expect_(s2, LParen, "Expected '(' after function name");
+        let (params, s4) = parse_typed_params(s3);
+        let s5 = expect_(s4, RParen, "Expected ')' after parameters");
+        // optional return type `-> Type`
+        let (got_arrow, s6) = match_any(s5, [Arrow]);
+        let (return_type, s7) = if got_arrow {
+          parse_type_expr(s6)
+        } else {
+          (None, s6)
+        };
+        let s8 = skip_newlines(s7);
+        let (body, s9) = parse_block(s8);
+        let loc = mk_loc(start_loc.start, current_loc(s9).end_, s9.file);
+        (Some(FunctionDecl(name, params, return_type, body, loc)), s9)
+      },
+      _ => {
+        let s2 = add_diagnostic(s1, E0001, "Expected function name", current_loc(s1));
+        (None, s2)
+      }
+    },
+    None => {
+      let s2 = add_diagnostic(s1, E0001, "Expected function name", current_loc(s1));
+      (None, s2)
+    }
+  }
+}
+
+// Function params: each an identifier with an optional `: Type` annotation.
+fn parse_typed_params(s: ParserState) -> ([Param], ParserState) {
+  let mut params = [];
+  let mut st = skip_newlines(s);
+  if !check(st, RParen) {
+    let (p0, st0) = typed_param_at(params, st);
+    params = p0;
+    st = st0;
+    let mut go = true;
+    while go {
+      let (got_comma, s_c) = match_any(st, [Comma]);
+      if !got_comma {
+        st = s_c;
+        go = false;
+      } else {
+        let s_sn = skip_newlines(s_c);
+        let (pn, stn) = typed_param_at(params, s_sn);
+        params = pn;
+        st = stn;
+      }
+    }
+  }
+  return (params, st); // `return` works around the if-then-tuple checker bug
+}
+
+// If the current token is an identifier, append a Param with optional `: Type`
+// and advance past name (+ annotation); otherwise leave both unchanged.
+fn typed_param_at(params: [Param], s: ParserState) -> ([Param], ParserState) {
+  match peek(s) {
+    Some(tok) => match tok.type_ {
+      Identifier(pname) => {
+        let ploc = tok.loc;
+        let s1 = advance(s);
+        let (ptype, s2) = parse_optional_type(s1);
+        (params ++ [#{ name: pname, type_: ptype, loc: ploc }], s2)
+      },
+      _ => (params, s)
+    },
+    None => (params, s)
+  }
+}
+
+fn parse_main(s: ParserState, start_loc: Location) -> (Option<Decl>, ParserState) {
+  let s1 = advance(s); // main
+  let s2 = skip_newlines(s1);
+  let (body, s3) = parse_block(s2);
+  let loc = mk_loc(start_loc.start, current_loc(s3).end_, s3.file);
+  (Some(MainBlock(body, loc)), s3)
+}
+
+fn parse_struct(s: ParserState, start_loc: Location) -> (Option<Decl>, ParserState) {
+  let s1 = advance(s); // struct
+  match peek(s1) {
+    Some(tok) => match tok.type_ {
+      Identifier(name) => {
+        let s2 = advance(s1);
+        let s3 = skip_newlines(s2);
+        let (fields, s4) = parse_struct_fields(s3);
+        let s5 = if check(s4, End) { advance(s4) } else { s4 };
+        let loc = mk_loc(start_loc.start, current_loc(s5).end_, s5.file);
+        (Some(StructDecl(name, fields, loc)), s5)
+      },
+      _ => {
+        let s2 = add_diagnostic(s1, E0001, "Expected struct name", current_loc(s1));
+        (None, s2)
+      }
+    },
+    None => {
+      let s2 = add_diagnostic(s1, E0001, "Expected struct name", current_loc(s1));
+      (None, s2)
+    }
+  }
+}
+
+fn parse_struct_fields(s: ParserState) -> ([(String, TypeExpr)], ParserState) {
+  let mut fields = [];
+  let mut st = s;
+  let mut go = true;
+  while go {
+    if !check(st, End) && !is_at_end(st) {
+      let (fn2, st2, keep) = struct_field_at(fields, st);
+      fields = fn2;
+      st = st2;
+      go = keep;
+    } else {
+      go = false;
+    }
+  }
+  (fields, st)
+}
+
+// Parse one struct field (`name: Type`) if present. Returns
+// (fields, state, keep_going). `keep_going` is false only when the cursor is
+// exhausted (mirrors the `None => ()` arm that would otherwise spin).
+fn struct_field_at(fields: [(String, TypeExpr)], s: ParserState) -> ([(String, TypeExpr)], ParserState, Bool) {
+  match peek(s) {
+    Some(tok) => match tok.type_ {
+      Identifier(fname) => {
+        let s1 = advance(s);
+        let s2 = expect_(s1, Colon, "Expected ':' after field name");
+        let (ty_opt, s3) = parse_type_expr(s2);
+        let new_fields = match ty_opt {
+          Some(ty) => fields ++ [(fname, ty)],
+          None => fields
+        };
+        (new_fields, skip_newlines(s3), true)
+      },
+      // Non-identifier: Parser.res's `| _ => ()` does not advance; the trailing
+      // skipNewlines then runs. We advance past the stray token to guarantee
+      // progress (a non-newline non-identifier would otherwise loop forever),
+      // which is a benign termination hardening over the .res source.
+      _ => (fields, skip_newlines(advance(s)), true)
+    },
+    None => (fields, s, false)
+  }
+}
+
+// ============================================
+// Main entry point
+// ============================================
+
+pub fn parse(tokens: [Token], file: String, run_number: Int) -> (Program, [Diagnostic]) {
+  let s0 = make(tokens, file, run_number);
+  let mut declarations = [];
+  let mut st = s0;
+  let mut go = true;
+  while go {
+    if !is_at_end(st) {
+      let (decl_opt, s1) = parse_declaration(st);
+      declarations = match decl_opt {
+        Some(decl) => declarations ++ [decl],
+        None => declarations
+      };
+      st = skip_newlines(s1);
+    } else {
+      go = false;
+    }
+  }
+
+  let prog_loc = mk_loc(#{ line: 1, column: 1, offset: 0 }, current_loc(st).end_, file);
+  let program = #{ declarations: declarations, loc: prog_loc };
+  (program, st.diagnostics)
+}
