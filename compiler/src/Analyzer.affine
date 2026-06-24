@@ -1,0 +1,233 @@
+// SPDX-License-Identifier: MPL-2.0
+// Analyzer.affine — static analysis & paradox detection
+// (ported from compiler/src/Analyzer.res).
+//
+// ── AffineScript port conventions ──
+//   * `open Types` + `open Stability` -> `use Types::*;` + `use Stability::*;`.
+//     The `Paradox`/`Consequence`/`Discovery` enums and the
+//     `operator_behavior_from_position` / `alternative_operator_behaviors` /
+//     `is_context_collapse` / `stability_bar` / `consequence_emoji` helpers
+//     are reused from Stability.affine verbatim.
+//   * ReScript inline-record variants -> positional (matching Stability's
+//     positional constructors and Types' positional AST/StabilityFactor ctors).
+//   * Backtick `${…}` templates with embedded newlines -> `++` concatenation
+//     with `\n`; emoji/box glyphs preserved. `Array.map(...)->Array.joinWith` ->
+//     `join(map(...), sep)`; `Array.slice(~start,~end)` -> `xs[a:b]`;
+//     `Array.mapWithIndex` -> an index-carrying loop.
+//
+// ── Faithfulness notes: documented gaps / simplifications vs Analyzer.res ──
+//   * `analyze_program` is OMITTED. It constructs an `AnalysisResult` whose
+//     `stabilityReport` field is a `Types::StabilityReport`, and it does so by
+//     calling `Stability::generate_report` — both of which are unconstructable
+//     because `StabilityReport.breakdown : Dict<String,Int>` has no value-level
+//     introduction in AffineScript (full rationale in Stability.affine's
+//     header). The AST walk it performs (paradox detection via
+//     `is_context_collapse` on let-names and `operator_behavior_from_position`
+//     on +/-/* binaries, plus mutable-state factor accumulation) cannot be
+//     surfaced without building that result record, so it is not ported.
+//     Consumers that already hold an `AnalysisResult` work: `forensic_analysis`
+//     (which only READS `analysis.stabilityReport.factors`) is ported, as is
+//     `format_stability_report` (which READS a `StabilityReport`).
+//   * Everything else is ported with identical strings/arithmetic: the
+//     `Paradox`/`Consequence`/etc. constructors, `trace_causality`,
+//     `generate_alternatives`, `forensic_analysis`, `format_paradox`, and
+//     `format_stability_report` (including the top-3 recommendation slice).
+//   * No `runTests`/Console code exists in Analyzer.res, so nothing else omitted.
+
+module Analyzer;
+
+use prelude::*;
+use string::{join};
+use Types::*;
+use Stability::*;
+
+// ============================================
+// Program Analysis (result type)
+// ============================================
+
+// `stabilityReport` is a `Types::StabilityReport` (phantom `Dict` field — see
+// header); the struct can be declared but not constructed here.
+pub struct AnalysisResult {
+  paradoxes: [Paradox],
+  consequences: [Consequence],
+  stabilityReport: StabilityReport,
+  discoveries: [Discovery]
+}
+
+// NOTE: `analyze_program` (Analyzer.res) is intentionally not ported — it
+// builds an `AnalysisResult` containing a `Types::StabilityReport`, which is
+// unconstructable in AffineScript (see header / Stability.affine).
+
+// ============================================
+// Causality Tracing
+// ============================================
+
+pub struct CausalityChain {
+  symptom: String,
+  symptomLocation: Location,
+  chain: [(String, Location)],
+  rootCause: String,
+  rootLocation: Location
+}
+
+pub fn trace_causality(symptom: String, symptom_loc: Location, prog: Program) -> CausalityChain {
+  // Simplified causality tracing — in a real implementation this would track
+  // data flow through the AST.
+  #{ symptom: symptom,
+     symptomLocation: symptom_loc,
+     chain: [("Type mismatch propagated from", symptom_loc)],
+     rootCause: "Unvalidated user input",
+     rootLocation: symptom_loc }
+}
+
+// ============================================
+// Alternative Code Generation
+// ============================================
+
+pub struct Alternative {
+  description: String,
+  code: String,
+  stabilityScore: Int,
+  improvements: [String]
+}
+
+pub fn generate_alternatives(stmt: Stmt, current_stability: Int) -> [Alternative] {
+  match stmt {
+    LetStmt(mutable_, name, _type, _value, _loc) =>
+      if mutable_ {
+        [
+          #{ description: "Use immutable binding",
+             code: "let " ++ name ++ " = ...",
+             stabilityScore: current_stability + 15,
+             improvements: [
+               "No mutation risk",
+               "Thread-safe by default",
+               "Easier to reason about"
+             ] }
+        ]
+      } else {
+        []
+      },
+    _ => []
+  }
+}
+
+// ============================================
+// Forensic Analysis (Deep Dive)
+// ============================================
+
+pub struct ForensicTrace {
+  target: String,
+  targetLocation: Location,
+  instabilityFactors: [(String, Int, String)], // (description, impact, reason)
+  probabilityMap: [(String, Int)],             // (scenario, probability %)
+  suggestedFix: String
+}
+
+fn factor_description(factor: StabilityFactor) -> String {
+  match factor {
+    MutableState(_m, _r) => "Mutable state detected",
+    TypeInstability(_x) => "Type changed dynamically",
+    _ => "Unknown factor"
+  }
+}
+
+pub fn forensic_analysis(target: String, target_loc: Location, analysis: AnalysisResult) -> ForensicTrace {
+  // Find all factors affecting this target.
+  let factors = map(analysis.stabilityReport.factors, |factor| {
+    let impact = stability_impact(factor);
+    (factor_description(factor), impact, "See stability report")
+  });
+
+  let probability_map = [
+    ("Standard behavior", 40),
+    ("Positional override", 30),
+    ("Context collapse", 20),
+    ("Temporal corruption", 10)
+  ];
+
+  #{ target: target,
+     targetLocation: target_loc,
+     instabilityFactors: factors,
+     probabilityMap: probability_map,
+     suggestedFix: "Move to different position or add explicit type" }
+}
+
+// ============================================
+// Visualization Formatters
+// ============================================
+
+pub fn format_paradox(paradox: Paradox) -> String {
+  match paradox {
+    ContextCollapseKeyword(keyword, line, _depth, _isKw, reason) =>
+      "⚡ QUANTUM KEYWORD at line " ++ int_to_string(line) ++ "\n" ++
+      "   '" ++ keyword ++ "' is both keyword AND identifier\n" ++
+      "   Reason: " ++ reason,
+
+    PositionalOperator(operator, line, column, behavior, alternatives) =>
+      "🎲 POSITIONAL OPERATOR at line " ++ int_to_string(line) ++ ":" ++ int_to_string(column) ++ "\n" ++
+      "   '" ++ operator ++ "' behaves as: " ++ behavior ++ "\n" ++
+      "   Alternative positions:\n" ++
+      join(map(alternatives, |pair| {
+        let (col, beh) = pair;
+        "     Col " ++ int_to_string(col) ++ ": " ++ beh
+      }), "\n"),
+
+    TypeSuperposition(variable, _line, possible_types, collapse_target) =>
+      "🌀 TYPE SUPERPOSITION\n" ++
+      "   Variable '" ++ variable ++ "' exists as: " ++ join(possible_types, " | ") ++ "\n" ++
+      "   Will collapse to: " ++ collapse_target,
+
+    ScopeLeakage(variable, declared_line, access_line, _runNumber, leak_reason) =>
+      "🕐 SCOPE LEAKAGE\n" ++
+      "   Variable '" ++ variable ++ "' declared at line " ++ int_to_string(declared_line) ++ "\n" ++
+      "   Accessible at line " ++ int_to_string(access_line) ++ "\n" ++
+      "   Reason: " ++ leak_reason,
+
+    TemporalCorruption(variable, _line, _affectedByRun, mechanism) =>
+      "⏰ TEMPORAL CORRUPTION\n" ++
+      "   Variable '" ++ variable ++ "' affected by historical state\n" ++
+      "   Mechanism: " ++ mechanism
+  }
+}
+
+fn factor_line(factor: StabilityFactor) -> String {
+  let emoji = consequence_emoji(factor);
+  let impact = stability_impact(factor);
+  let desc = match factor {
+    MutableState(mutations, readers) =>
+      "Mutable state (" ++ int_to_string(mutations) ++ " mutations, " ++ int_to_string(readers) ++ " readers)",
+    TypeInstability(reassignments) =>
+      "Type instability (" ++ int_to_string(reassignments) ++ " reassignments)",
+    NullPropagation(depth) =>
+      "Null propagation (depth " ++ int_to_string(depth) ++ ")",
+    _ => "Other factor"
+  };
+  emoji ++ " " ++ desc ++ ": " ++ int_to_string(impact) ++ " points"
+}
+
+pub fn format_stability_report(report: StabilityReport) -> String {
+  let bar = stability_bar(report.score);
+
+  let factor_list = join(map(report.factors, factor_line), "\n   ");
+
+  // Top-3 recommendations with 1-based numbering.
+  let recs = report.recommendations;
+  let top = if len(recs) > 3 { recs[0:3] } else { recs };
+  let mut rec_lines = "";
+  let mut i = 0;
+  let n = len(top);
+  while i < n {
+    if i > 0 { rec_lines = rec_lines ++ "\n"; }
+    rec_lines = rec_lines ++ "   " ++ int_to_string(i + 1) ++ ". " ++ top[i];
+    i = i + 1;
+  }
+
+  "\n🎯 STABILITY REPORT\n" ++
+  "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" ++
+  bar ++ "\n\n" ++
+  "Breakdown:\n" ++
+  "   " ++ factor_list ++ "\n\n" ++
+  "💡 Top Recommendations:\n" ++
+  rec_lines ++ "\n"
+}

@@ -1,0 +1,333 @@
+// SPDX-License-Identifier: MPL-2.0
+// LayerNavigator.affine — navigate through abstraction layers
+// (ported from compiler/src/LayerNavigator.res).
+//
+// Shows how code transforms through the 5 layers of abstraction:
+// Grammar -> Parser -> AST -> Semantics -> Runtime. This module OWNS the
+// `Layer` enum (FiveWhys.affine imports it).
+//
+// ── AffineScript port conventions ──
+//   * `open Types` -> `use Types::*;`. The `layer` type is defined here as the
+//     `Layer` enum; its constructors (Grammar/Parser/AST/Semantics/Runtime) are
+//     GLOBAL, so they live in exactly one module — here — and FiveWhys.affine
+//     does `use LayerNavigator::{Layer, Grammar, Parser, AST, Semantics,
+//     Runtime}` rather than redefining them.
+//   * ReScript backtick templates with `${…}` interpolation and embedded
+//     newlines -> `++` string concatenation with `\n` escapes; box-drawing
+//     glyphs (`├─`, `└─`) preserved verbatim. `String.repeat` -> string
+//     `repeat`. `Array.length` -> `len`.
+//   * `navigateToLayer`'s record spread `{...state, currentLayer}` -> full
+//     reconstruction, copying `selectedNode` / `layerViews` from the input
+//     (the latter is a `Dict`-bearing field reused from the parameter — see
+//     the omission note below).
+//
+// ── Faithfulness notes: documented gaps / simplifications vs LayerNavigator.res ──
+//   * `create_layer_views` is OMITTED. It builds `LayerView` records whose
+//     `metadata` field is typed `dict<string, string>` (-> `Dict<String,
+//     String>` here). As documented at length in Stability.affine, `Dict` is a
+//     phantom type constructor in the current AffineScript compiler with no
+//     value-level introduction (no literal, no builtin, statement-only unwired
+//     `transmute`, kind-rejected in normal fn signatures), and `Types`-style
+//     struct fields accept it only because record kind-checking does not
+//     recurse into fields. Since a `LayerView` cannot be CONSTRUCTED, the
+//     view-list builder is not expressible. Every per-layer STRING the builder
+//     would embed is ported and public (`get_grammar_rule`, `format_parse_tree`,
+//     `format_ast_node`, `analyze_semantics`), so a caller that supplies its
+//     own metadata container can assemble the views; only the `Dict`-typed
+//     assembly step is unavailable. `navigate_to_layer` (which only *copies*
+//     an existing `layerViews`) is ported and works.
+//   * Everything else is ported with identical output strings: the EBNF rules,
+//     parse-tree/AST renderings, semantic type-check text, type inference and
+//     matching, node-type names, the binary-op spelling, and `layer_name` /
+//     `layer_index`.
+//   * No `runTests`/Console code exists in LayerNavigator.res, so nothing else
+//     is omitted.
+
+module LayerNavigator;
+
+use prelude::*;
+use string::{repeat};
+use Types::*;
+
+// The five layers of abstraction (this module owns the `layer` type).
+pub enum Layer {
+  Grammar,    // EBNF rules that define what's valid
+  Parser,     // How text becomes structure (parse tree)
+  AST,        // Abstract syntax tree (simplified structure)
+  Semantics,  // Type checking, scope analysis
+  Runtime     // Actual execution values
+}
+
+// Layer view representation. `metadata` is `Dict<String,String>` (phantom —
+// see header); the struct can be declared but not constructed.
+pub struct LayerView {
+  layer: Layer,
+  content: String,
+  highlighted: Option<(Int, Int)>,
+  metadata: Dict<String, String>
+}
+
+// Navigation state — which layer we're currently viewing.
+pub struct NavigationState {
+  currentLayer: Layer,
+  selectedNode: Option<String>,
+  layerViews: [LayerView]
+}
+
+// NOTE: `create_layer_views` (LayerNavigator.res) is intentionally not ported —
+// it constructs `LayerView` records carrying a `Dict<String,String>` metadata
+// field, which has no value-level introduction in AffineScript. See header.
+
+/// Get EBNF grammar rule for a statement.
+pub fn get_grammar_rule(stmt: Stmt) -> String {
+  match stmt {
+    LetStmt(mutable_, _name, _type, _value, _loc) =>
+      if mutable_ {
+        "letStmt ::= \"let\" \"mut\" identifier \"=\" expression"
+      } else {
+        "letStmt ::= \"let\" identifier \"=\" expression"
+      },
+    IfStmt(_c, _t, _ei, _e, _loc) =>
+      "ifStmt ::= \"if\" expression\n" ++
+      "            statement*\n" ++
+      "            (\"elseif\" expression statement*)*\n" ++
+      "            (\"else\" statement*)?\n" ++
+      "            \"end\"",
+    WhileStmt(_c, _b, _loc) =>
+      "whileStmt ::= \"while\" expression\n" ++
+      "               statement*\n" ++
+      "               \"end\"",
+    ForStmt(_v, _it, _b, _loc) =>
+      "forStmt ::= \"for\" identifier \"in\" expression\n" ++
+      "             statement*\n" ++
+      "             \"end\"",
+    PrintStmt(is_println, _args, _loc) =>
+      if is_println {
+        "printStmt ::= \"println\" \"(\" expression (\",\" expression)* \")\""
+      } else {
+        "printStmt ::= \"print\" \"(\" expression (\",\" expression)* \")\""
+      },
+    GutterBlock(_tk, _rec, _loc) =>
+      "gutterBlock ::= \"gutter\"\n" ++
+      "                 statement*\n" ++
+      "                 \"end\"",
+    ExprStmt(_e) =>
+      "exprStmt ::= expression",
+    _ =>
+      "statement ::= /* unknown */"
+  }
+}
+
+/// Format parse tree for display.
+pub fn format_parse_tree(stmt: Stmt) -> String {
+  match stmt {
+    LetStmt(mutable_, name, _type, value, _loc) => {
+      let mut_str = if mutable_ { "mut " } else { "" };
+      "letStmt\n" ++
+      "├─ \"let\"\n" ++
+      "├─ " ++ mut_str ++ "identifier(\"" ++ name ++ "\")\n" ++
+      "├─ \"=\"\n" ++
+      "└─ " ++ format_expr_parse_tree(value, 1)
+    },
+    PrintStmt(is_println, args, _loc) => {
+      let fname = if is_println { "println" } else { "print" };
+      "printStmt\n" ++
+      "├─ \"" ++ fname ++ "\"\n" ++
+      "├─ \"(\"\n" ++
+      "├─ args: " ++ int_to_string(len(args)) ++ "\n" ++
+      "└─ \")\""
+    },
+    _ =>
+      "statement (simplified)"
+  }
+}
+
+fn format_expr_parse_tree(expr: Expr, depth: Int) -> String {
+  let indent = repeat("   ", depth);
+  match expr {
+    IntLit(n, _loc) =>
+      "literal(" ++ int_to_string(n) ++ ")",
+    StringLit(s, _loc) =>
+      "literal(\"" ++ s ++ "\")",
+    Ident(name, _loc) =>
+      "identifier(\"" ++ name ++ "\")",
+    Binary(left, op, right, _loc) =>
+      "binary\n" ++
+      indent ++ "├─ " ++ format_expr_parse_tree(left, depth + 1) ++ "\n" ++
+      indent ++ "├─ operator(" ++ binary_op_to_string(op) ++ ")\n" ++
+      indent ++ "└─ " ++ format_expr_parse_tree(right, depth + 1),
+    _ =>
+      "expression"
+  }
+}
+
+/// Format AST node for display.
+pub fn format_ast_node(stmt: Stmt) -> String {
+  match stmt {
+    LetStmt(mutable_, name, type_, value, loc) => {
+      let type_str = match type_ {
+        Some(t) => ": " ++ type_expr_to_string(t),
+        None => ""
+      };
+      "LetStmt {\n" ++
+      "  name: \"" ++ name ++ "\",\n" ++
+      "  mutable: " ++ (if mutable_ { "true" } else { "false" }) ++ ",\n" ++
+      "  type: " ++ type_str ++ ",\n" ++
+      "  value: " ++ format_expr_ast(value) ++ ",\n" ++
+      "  loc: line " ++ int_to_string(loc.start.line) ++ "\n" ++
+      "}"
+    },
+    PrintStmt(is_println, args, _loc) =>
+      "PrintStmt {\n" ++
+      "  println: " ++ (if is_println { "true" } else { "false" }) ++ ",\n" ++
+      "  args: [" ++ int_to_string(len(args)) ++ " expressions]\n" ++
+      "}",
+    _ =>
+      "Statement { ... }"
+  }
+}
+
+fn format_expr_ast(expr: Expr) -> String {
+  match expr {
+    IntLit(n, _loc) => "IntLit(" ++ int_to_string(n) ++ ")",
+    StringLit(s, _loc) => "StringLit(\"" ++ s ++ "\")",
+    Ident(name, _loc) => "Ident(\"" ++ name ++ "\")",
+    Binary(left, op, right, _loc) =>
+      "Binary(" ++ format_expr_ast(left) ++ ", " ++ binary_op_to_string(op) ++ ", " ++ format_expr_ast(right) ++ ")",
+    _ => "Expr(...)"
+  }
+}
+
+/// Analyze semantics for a node.
+pub fn analyze_semantics(stmt: Stmt) -> String {
+  match stmt {
+    LetStmt(_mutable, name, type_, value, _loc) => {
+      let inferred_type = infer_expr_type(value);
+      let type_check = match type_ {
+        Some(annotated) =>
+          if type_exprs_match(annotated, inferred_type) {
+            "✓ Type check passed: " ++ type_expr_to_string(annotated)
+          } else {
+            "✗ Type mismatch: expected " ++ type_expr_to_string(annotated) ++ ", got " ++ type_expr_to_string(inferred_type)
+          },
+        None =>
+          "Type inferred: " ++ type_expr_to_string(inferred_type)
+      };
+      "Variable: " ++ name ++ "\n" ++
+      "Scope: local\n" ++
+      type_check
+    },
+    _ =>
+      "Semantic analysis: [pending]"
+  }
+}
+
+/// Infer type of an expression (simplified).
+pub fn infer_expr_type(expr: Expr) -> TypeExpr {
+  match expr {
+    IntLit(_n, _loc) => TyInt,
+    FloatLit(_f, _loc) => TyFloat,
+    StringLit(_s, _loc) => TyString,
+    BoolLit(_b, _loc) => TyBool,
+    _ => TyInt  // Simplified
+  }
+}
+
+/// Check if two type expressions match.
+pub fn type_exprs_match(t1: TypeExpr, t2: TypeExpr) -> Bool {
+  match (t1, t2) {
+    (TyInt, TyInt) => true,
+    (TyFloat, TyFloat) => true,
+    (TyString, TyString) => true,
+    (TyBool, TyBool) => true,
+    _ => false
+  }
+}
+
+/// Convert type expression to string.
+pub fn type_expr_to_string(t: TypeExpr) -> String {
+  match t {
+    TyInt => "Int",
+    TyFloat => "Float",
+    TyString => "String",
+    TyBool => "Bool",
+    TyArray(inner) => "Array<" ++ type_expr_to_string(inner) ++ ">",
+    TyEcho(a, b) =>
+      match a {
+        None => "Echo",
+        Some(ta) => match b {
+          None => "Echo<" ++ type_expr_to_string(ta) ++ ">",
+          Some(tb) => "Echo<" ++ type_expr_to_string(ta) ++ ", " ++ type_expr_to_string(tb) ++ ">"
+        }
+      },
+    TyEchoResidue(a, b) =>
+      match a {
+        None => "EchoR",
+        Some(ta) => match b {
+          None => "EchoR<" ++ type_expr_to_string(ta) ++ ">",
+          Some(tb) => "EchoR<" ++ type_expr_to_string(ta) ++ ", " ++ type_expr_to_string(tb) ++ ">"
+        }
+      },
+    TyIdent(name) => name
+  }
+}
+
+/// Get node type name.
+pub fn node_type_name(stmt: Stmt) -> String {
+  match stmt {
+    LetStmt(_m, _n, _t, _v, _l) => "LetStmt",
+    AssignStmt(_t, _v, _l) => "AssignStmt",
+    IfStmt(_c, _t, _ei, _e, _l) => "IfStmt",
+    WhileStmt(_c, _b, _l) => "WhileStmt",
+    ForStmt(_v, _it, _b, _l) => "ForStmt",
+    PrintStmt(_p, _a, _l) => "PrintStmt",
+    GutterBlock(_tk, _r, _l) => "GutterBlock",
+    ExprStmt(_e) => "ExprStmt",
+    _ => "Statement"
+  }
+}
+
+/// Binary operator to string.
+pub fn binary_op_to_string(op: BinaryOp) -> String {
+  match op {
+    Add => "+",
+    Sub => "-",
+    Mul => "*",
+    Div => "/",
+    Mod => "%",
+    Eq => "==",
+    Neq => "!=",
+    Lt => "<",
+    Gt => ">",
+    Lte => "<=",
+    Gte => ">=",
+    _ => "op"
+  }
+}
+
+/// Navigate to a specific layer (full reconstruction; copies the rest).
+pub fn navigate_to_layer(state: NavigationState, target_layer: Layer) -> NavigationState {
+  #{ currentLayer: target_layer, selectedNode: state.selectedNode, layerViews: state.layerViews }
+}
+
+/// Get layer name for display.
+pub fn layer_name(layer: Layer) -> String {
+  match layer {
+    Grammar => "Grammar (EBNF)",
+    Parser => "Parser (Parse Tree)",
+    AST => "AST (Abstract Syntax)",
+    Semantics => "Semantics (Type Check)",
+    Runtime => "Runtime (Execution)"
+  }
+}
+
+/// Get layer index (for visualization).
+pub fn layer_index(layer: Layer) -> Int {
+  match layer {
+    Grammar => 0,
+    Parser => 1,
+    AST => 2,
+    Semantics => 3,
+    Runtime => 4
+  }
+}

@@ -1,0 +1,537 @@
+// SPDX-License-Identifier: MPL-2.0
+// SPDX-FileCopyrightText: 2026 Jonathan D.A. Jewell
+//
+// TokenStream.affine — token stream API for macro systems
+// (ported from compiler/src/TokenStream.res).
+//
+// The foundational token-stream abstraction used by procedural/declarative
+// macros. A token stream is an array of `TokenTree` values (Ident / Punct /
+// Literal / Group), modelled on Rust's `proc_macro::TokenStream`.
+//
+// ── AffineScript port conventions ──
+//   * `open Types` -> `use Types::*;` (TokenStream defines its own surface and
+//     borrows nothing from Types except participating in the same module set;
+//     the glob import is harmless — none of its own constructors collide).
+//   * ReScript inline-record variants (`TtIdent({sym, span})`) -> positional
+//     constructors (`TtIdent(String, TsSpan)`), matched positionally.
+//   * `tokenStream = array<tokenTree>` -> the type alias `TokenStream =
+//     [TokenTree]`; the recursive `TtGroup` carries a `[TokenTree]` directly
+//     (same self-reference shape as Cst.affine's CstNode/CstTree).
+//   * The `ofString` lexer is rendered functionally: every ReScript `ref` cell
+//     (`pos`/`stack`/`trees`/`error`/`done`/`depth`/…) becomes a `let mut`
+//     local threaded through the driver `while`. The nested-group stack
+//     `list{(delim,int,array)}` becomes a `[(Delimiter, Int, [TokenTree])]`
+//     used front-as-top (`xs[0]` / `xs[1:]`).
+//   * Single characters: dispatch is on the code point (`code_at` = -1 at EOF,
+//     mirroring the .res `peekAt`/`charAt` Option logic); where a one-char
+//     *string* is needed (`TtPunct` text, error messages) it is taken with
+//     `substring(s, i, i+1)`. `String.charCodeAt` -> `char_to_int(char_at)`.
+//   * `String.slice(~start,~end)` / `String.substring(~start,~end)` ->
+//     `substring(s, start, end)`; `Array.concat`/`Array.flatMap` ->
+//     `++` / `flat_map`; `result<…>` -> `Result<…>` from prelude.
+//
+// ── Faithfulness notes: documented gaps / simplifications vs TokenStream.res ──
+//   * No behaviour omitted. Constructors, accessors (`span_of`, `is_empty`,
+//     `length`, `stream_span`), stream ops (`concat`, `push`, `flatten`),
+//     source reconstruction (`tree_to_string`/`to_source` with `Joint`-aware
+//     spacing), and the full `of_string` lexer (identifiers, keywords-as-
+//     identifiers, decimal/hex/binary/octal/float numerics, string & char
+//     literals with escapes, boolean literals, punctuation spacing, delimiter
+//     grouping with mismatch/unclosed diagnostics, and line/block comments
+//     with nesting) are all ported with identical logic and messages.
+//   * No `runTests`/Console code exists in TokenStream.res, so nothing omitted.
+
+module TokenStream;
+
+use prelude::*;
+use string::{substring, char_at};
+use collections::{flat_map};
+use Types::*;
+
+// ---------------------------------------------------------------------------
+// Surface types
+// ---------------------------------------------------------------------------
+
+pub enum Spacing {
+  Alone, // Followed by whitespace or a non-punctuation token.
+  Joint  // Immediately followed by another punctuation character.
+}
+
+pub enum LiteralKind {
+  LitInteger, // `42`, `0xFF`, `0b1010`, `0o77`
+  LitFloat,   // `3.14`, `1.5e10`
+  LitString,  // `"hello"`
+  LitChar,    // `'a'`, `'\n'`
+  LitBool     // `true`, `false`
+}
+
+pub enum Delimiter {
+  Paren,    // ( ... )
+  Bracket,  // [ ... ]
+  Brace,    // { ... }
+  NoneDelim // implicit grouping from macro expansion
+}
+
+// Byte-offset span (kept lightweight vs the full Types::Location).
+pub struct TsSpan {
+  start: Int,
+  end_: Int,
+  file: String
+}
+
+pub enum TokenTree {
+  TtIdent(String, TsSpan),                 // sym, span
+  TtPunct(String, Spacing, TsSpan),        // ch, spacing, span
+  TtLiteral(LiteralKind, String, TsSpan),  // kind, text, span
+  TtGroup(Delimiter, [TokenTree], TsSpan)  // delimiter, stream, span
+}
+
+pub type TokenStream = [TokenTree];
+
+pub struct ParseError {
+  message: String,
+  offset: Int
+}
+
+pub fn dummy_span() -> TsSpan {
+  #{ start: 0, end_: 0, file: "<generated>" }
+}
+
+// ---------------------------------------------------------------------------
+// Constructors
+// ---------------------------------------------------------------------------
+
+pub fn empty() -> [TokenTree] { [] }
+
+pub fn ident(sym: String, span: TsSpan) -> TokenTree { TtIdent(sym, span) }
+
+pub fn punct(ch: String, spacing: Spacing, span: TsSpan) -> TokenTree {
+  TtPunct(ch, spacing, span)
+}
+
+pub fn literal(kind: LiteralKind, text: String, span: TsSpan) -> TokenTree {
+  TtLiteral(kind, text, span)
+}
+
+pub fn group(delimiter: Delimiter, stream: [TokenTree], span: TsSpan) -> TokenTree {
+  TtGroup(delimiter, stream, span)
+}
+
+// ---------------------------------------------------------------------------
+// Accessors
+// ---------------------------------------------------------------------------
+
+pub fn span_of(tree: TokenTree) -> TsSpan {
+  match tree {
+    TtIdent(_sym, span) => span,
+    TtPunct(_ch, _sp, span) => span,
+    TtLiteral(_k, _t, span) => span,
+    TtGroup(_d, _s, span) => span
+  }
+}
+
+pub fn is_empty(stream: [TokenTree]) -> Bool { len(stream) == 0 }
+
+pub fn length(stream: [TokenTree]) -> Int { len(stream) }
+
+pub fn stream_span(stream: [TokenTree]) -> TsSpan {
+  let n = len(stream);
+  if n == 0 {
+    dummy_span()
+  } else {
+    let first = span_of(stream[0]);
+    let last = span_of(stream[n - 1]);
+    #{ start: first.start, end_: last.end_, file: first.file }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stream operations
+// ---------------------------------------------------------------------------
+
+pub fn concat(a: [TokenTree], b: [TokenTree]) -> [TokenTree] { a ++ b }
+
+pub fn push(stream: [TokenTree], tree: TokenTree) -> [TokenTree] { stream ++ [tree] }
+
+fn id_stream(x: [TokenTree]) -> [TokenTree] { x }
+
+pub fn flatten(streams: [[TokenTree]]) -> [TokenTree] {
+  flat_map(id_stream, streams)
+}
+
+// ---------------------------------------------------------------------------
+// Pretty-printing — reconstruct source from token stream
+// ---------------------------------------------------------------------------
+
+pub fn tree_to_string(tree: TokenTree) -> String {
+  match tree {
+    TtIdent(sym, _span) => sym,
+    TtPunct(ch, _sp, _span) => ch,
+    TtLiteral(_k, text, _span) => text,
+    TtGroup(delimiter, stream, _span) => {
+      let inner = to_source(stream);
+      match delimiter {
+        Paren => "(" ++ inner ++ ")",
+        Bracket => "[" ++ inner ++ "]",
+        Brace => "{" ++ inner ++ "}",
+        NoneDelim => inner
+      }
+    }
+  }
+}
+
+// Reconstructs source text: single space between tokens, except `Joint` punct.
+pub fn to_source(stream: [TokenTree]) -> String {
+  let mut buf = "";
+  let mut first = true;
+  let mut i = 0;
+  let n = len(stream);
+  while i < n {
+    let tree = stream[i];
+    if !first {
+      let prefix = match tree {
+        TtPunct(_ch, Joint, _span) => "",
+        _ => " "
+      };
+      buf = buf ++ prefix;
+    }
+    buf = buf ++ tree_to_string(tree);
+    first = false;
+    i = i + 1;
+  }
+  buf
+}
+
+// ---------------------------------------------------------------------------
+// Parsing — lex source text into a token stream
+// ---------------------------------------------------------------------------
+
+// Code point at index `i`, or -1 at/past end of input.
+fn code_at(s: String, i: Int) -> Int {
+  match char_at(s, i) {
+    Some(c) => char_to_int(c),
+    None => -1
+  }
+}
+
+// Single-character string at `i` (empty string past end).
+fn char_str(s: String, i: Int) -> String {
+  if i < len(s) { substring(s, i, i + 1) } else { "" }
+}
+
+// True for a punctuation character recognised by the lexer (delimiters excluded).
+fn is_punct_code(c: Int) -> Bool {
+  c == 43 || c == 45 || c == 42 || c == 47 || c == 37 || c == 61 || c == 33 ||
+  c == 60 || c == 62 || c == 38 || c == 124 || c == 94 || c == 126 || c == 46 ||
+  c == 44 || c == 59 || c == 58 || c == 64 || c == 35 || c == 63 || c == 92
+}
+
+fn is_alpha_code(c: Int) -> Bool {
+  (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+}
+
+fn is_digit_code(c: Int) -> Bool { c >= 48 && c <= 57 }
+
+fn is_alnum_code(c: Int) -> Bool { is_alpha_code(c) || is_digit_code(c) }
+
+fn is_ws_code(c: Int) -> Bool { c == 32 || c == 9 || c == 13 || c == 10 }
+
+// A stack frame for a still-open delimiter group: (delim, startPos, parentTrees).
+struct Frame {
+  delim: Delimiter,
+  startp: Int,
+  parent: [TokenTree]
+}
+
+// Scanner result carrying the new cursor, the (possibly extended) trees, and an
+// optional error. Threaded by the driver so the if-then-tuple bug is avoided.
+struct LexStep {
+  pos: Int,
+  trees: [TokenTree],
+  err: Option<ParseError>
+}
+
+fn close_char(d: Delimiter) -> String {
+  match d {
+    Paren => ")",
+    Bracket => "]",
+    Brace => "}",
+    NoneDelim => "?"
+  }
+}
+
+fn open_char(d: Delimiter) -> String {
+  match d {
+    Paren => "(",
+    Bracket => "[",
+    Brace => "{",
+    NoneDelim => "?"
+  }
+}
+
+/// Lexes source text into a token stream. `Ok(stream)` on success, else
+/// `Err(ParseError)`.
+pub fn of_string(source: String, file: String) -> Result<[TokenTree], ParseError> {
+  let glen = len(source);
+  let mut pos = 0;
+  // Stack of open groups (front = innermost).
+  let mut stack = [];
+  let mut trees = [];
+  let mut error = None;
+  let mut has_error = false;
+
+  while pos < glen && !has_error {
+    let c = code_at(source, pos);
+
+    if is_ws_code(c) {
+      pos = pos + 1;
+    }
+    // Line comment: // ... to end of line
+    else if c == 47 && code_at(source, pos + 1) == 47 {
+      pos = pos + 2;
+      while pos < glen && code_at(source, pos) != 10 {
+        pos = pos + 1;
+      }
+    }
+    // Block comment: /* ... */ (nesting)
+    else if c == 47 && code_at(source, pos + 1) == 42 {
+      let start = pos;
+      pos = pos + 2;
+      let mut depth = 1;
+      while (pos + 1 < glen) && (depth > 0) {
+        let c1 = code_at(source, pos);
+        let c2 = code_at(source, pos + 1);
+        if c1 == 47 && c2 == 42 {
+          depth = depth + 1;
+          pos = pos + 2;
+        } else if c1 == 42 && c2 == 47 {
+          depth = depth - 1;
+          pos = pos + 2;
+        } else {
+          pos = pos + 1;
+        }
+      }
+      if depth > 0 {
+        error = Some(#{ message: "unterminated block comment", offset: start });
+        has_error = true;
+      }
+    }
+    // Opening delimiters
+    else if c == 40 || c == 91 || c == 123 {
+      let delim = if c == 40 { Paren } else if c == 91 { Bracket } else { Brace };
+      stack = [#{ delim: delim, startp: pos, parent: trees }] ++ stack;
+      trees = [];
+      pos = pos + 1;
+    }
+    // Closing delimiters
+    else if c == 41 || c == 93 || c == 125 {
+      let expected = if c == 41 { Paren } else if c == 93 { Bracket } else { Brace };
+      let step = close_delim(source, file, pos, stack, trees, expected, c);
+      pos = step.pos;
+      // close_delim returns updated trees/stack/error via a record; unpack:
+      trees = step.trees;
+      stack = step.stack;
+      match step.err {
+        Some(e) => { error = Some(e); has_error = true; },
+        None => { }
+      }
+    }
+    // String literal
+    else if c == 34 {
+      let st = scan_string(source, file, pos, trees);
+      pos = st.pos;
+      trees = st.trees;
+      match st.err {
+        Some(e) => { error = Some(e); has_error = true; },
+        None => { }
+      }
+    }
+    // Character literal
+    else if c == 39 {
+      let st = scan_char(source, file, pos, trees);
+      pos = st.pos;
+      trees = st.trees;
+      match st.err {
+        Some(e) => { error = Some(e); has_error = true; },
+        None => { }
+      }
+    }
+    // Numeric literal
+    else if is_digit_code(c) {
+      let st = scan_number(source, file, pos, trees);
+      pos = st.pos;
+      trees = st.trees;
+    }
+    // Identifier or keyword (including true/false)
+    else if is_alpha_code(c) {
+      let start = pos;
+      let mut j = pos;
+      while j < glen && is_alnum_code(code_at(source, j)) {
+        j = j + 1;
+      }
+      let text = substring(source, start, j);
+      let span = #{ start: start, end_: j, file: file };
+      let tree = if text == "true" || text == "false" {
+        TtLiteral(LitBool, text, span)
+      } else {
+        TtIdent(text, span)
+      };
+      trees = trees ++ [tree];
+      pos = j;
+    }
+    // Punctuation
+    else if is_punct_code(c) {
+      let start = pos;
+      pos = pos + 1;
+      let spacing = if pos < glen && is_punct_code(code_at(source, pos)) {
+        Joint
+      } else {
+        Alone
+      };
+      let span = #{ start: start, end_: pos, file: file };
+      trees = trees ++ [TtPunct(char_str(source, start), spacing, span)];
+    }
+    // Unknown character
+    else {
+      error = Some(#{ message: "unexpected character: '" ++ char_str(source, pos) ++ "'", offset: pos });
+      has_error = true;
+    }
+  }
+
+  match error {
+    Some(err) => Err(err),
+    None => {
+      if len(stack) > 0 {
+        let f = stack[0];
+        Err(#{ message: "unclosed delimiter '" ++ open_char(f.delim) ++ "'", offset: f.startp })
+      } else {
+        Ok(trees)
+      }
+    }
+  }
+}
+
+// Result of closing a delimiter: new cursor, trees, stack, optional error.
+struct CloseStep {
+  pos: Int,
+  trees: [TokenTree],
+  stack: [Frame],
+  err: Option<ParseError>
+}
+
+fn close_delim(source: String, file: String, pos0: Int, stack: [Frame],
+               trees: [TokenTree], expected: Delimiter, ch: Int) -> CloseStep {
+  if len(stack) == 0 {
+    #{ pos: pos0, trees: trees, stack: stack,
+       err: Some(#{ message: "unexpected closing delimiter '" ++ char_str(source, pos0) ++ "'", offset: pos0 }) }
+  } else {
+    let frame = stack[0];
+    let rest = stack[1:];
+    if frame.delim == expected {
+      let new_pos = pos0 + 1;
+      let grp = TtGroup(frame.delim, trees, #{ start: frame.startp, end_: new_pos, file: file });
+      #{ pos: new_pos, trees: frame.parent ++ [grp], stack: rest, err: None }
+    } else {
+      #{ pos: pos0, trees: trees, stack: stack,
+         err: Some(#{ message: "mismatched delimiter: expected '" ++ close_char(frame.delim) ++
+                      "', found '" ++ char_str(source, pos0) ++ "'", offset: pos0 }) }
+    }
+  }
+}
+
+fn scan_string(source: String, file: String, pos0: Int, trees: [TokenTree]) -> LexStep {
+  let glen = len(source);
+  let start = pos0;
+  let mut pos = pos0 + 1;
+  let mut done = false;
+  let mut unterminated = false;
+  while pos < glen && !done {
+    let c = code_at(source, pos);
+    if c == 92 {        // backslash escape
+      pos = pos + 2;
+    } else if c == 34 { // closing quote
+      pos = pos + 1;
+      done = true;
+    } else {
+      pos = pos + 1;
+    }
+  }
+  if !done {
+    unterminated = true;
+  }
+  if unterminated {
+    #{ pos: pos, trees: trees, err: Some(#{ message: "unterminated string literal", offset: start }) }
+  } else {
+    let text = substring(source, start, pos);
+    let lit = TtLiteral(LitString, text, #{ start: start, end_: pos, file: file });
+    #{ pos: pos, trees: trees ++ [lit], err: None }
+  }
+}
+
+fn scan_char(source: String, file: String, pos0: Int, trees: [TokenTree]) -> LexStep {
+  let glen = len(source);
+  let start = pos0;
+  let mut pos = pos0 + 1;
+  if pos < glen && code_at(source, pos) == 92 {
+    pos = pos + 2; // escaped char
+  } else if pos < glen {
+    pos = pos + 1;
+  }
+  if pos >= glen || code_at(source, pos) != 39 {
+    #{ pos: pos, trees: trees, err: Some(#{ message: "unterminated character literal", offset: start }) }
+  } else {
+    let new_pos = pos + 1; // closing quote
+    let text = substring(source, start, new_pos);
+    let lit = TtLiteral(LitChar, text, #{ start: start, end_: new_pos, file: file });
+    #{ pos: new_pos, trees: trees ++ [lit], err: None }
+  }
+}
+
+fn scan_number(source: String, file: String, pos0: Int, trees: [TokenTree]) -> LexStep {
+  let glen = len(source);
+  let start = pos0;
+  let mut pos = pos0;
+  let mut is_float = false;
+  let c0 = code_at(source, pos);
+
+  // Base-prefixed integer: 0x / 0b / 0o
+  let next = if pos + 1 < glen { code_at(source, pos + 1) } else { -1 };
+  let is_prefixed = c0 == 48 && (next == 120 || next == 88 || next == 98 || next == 66 || next == 111 || next == 79);
+
+  if is_prefixed {
+    pos = pos + 2;
+    while pos < glen && is_alnum_code(code_at(source, pos)) {
+      pos = pos + 1;
+    }
+  } else {
+    // integer part (allow underscores)
+    while pos < glen && (is_digit_code(code_at(source, pos)) || code_at(source, pos) == 95) {
+      pos = pos + 1;
+    }
+    // fractional part: '.' digit
+    if pos < glen && code_at(source, pos) == 46 &&
+       pos + 1 < glen && is_digit_code(code_at(source, pos + 1)) {
+      is_float = true;
+      pos = pos + 1;
+      while pos < glen && (is_digit_code(code_at(source, pos)) || code_at(source, pos) == 95) {
+        pos = pos + 1;
+      }
+    }
+    // exponent
+    if pos < glen && (code_at(source, pos) == 101 || code_at(source, pos) == 69) {
+      is_float = true;
+      pos = pos + 1;
+      if pos < glen && (code_at(source, pos) == 43 || code_at(source, pos) == 45) {
+        pos = pos + 1;
+      }
+      while pos < glen && is_digit_code(code_at(source, pos)) {
+        pos = pos + 1;
+      }
+    }
+  }
+
+  let text = substring(source, start, pos);
+  let kind = if is_float { LitFloat } else { LitInteger };
+  let lit = TtLiteral(kind, text, #{ start: start, end_: pos, file: file });
+  #{ pos: pos, trees: trees ++ [lit], err: None }
+}

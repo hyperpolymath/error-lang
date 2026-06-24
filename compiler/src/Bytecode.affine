@@ -1,0 +1,251 @@
+// SPDX-License-Identifier: MPL-2.0
+// Bytecode.affine — bytecode instruction set for the Error-Lang VM
+// (ported from compiler/src/Bytecode.res).
+//
+// Stack-based bytecode VM designed for:
+//   - Computational haptics integration
+//   - Positional semantics preservation
+//   - Paradox visualization
+//   - Educational transparency
+//
+// ── AffineScript port conventions ──
+//   * `open` becomes module imports. Bytecode defines the opcode/value/chunk
+//     types every sibling compiler back-end module reuses, so Codegen and VM
+//     `use Bytecode::*;` after `use Types::*;`.
+//   * AffineScript has no mutable struct fields and no record-spread; the
+//     types here are pure data (immutable), so the only adaptation is the
+//     ReScript inline-record variants and inline-record struct fields, which
+//     become positional / named-immutable respectively.
+//   * ReScript `value` variant `VFunction({arity, address, name})` -> the
+//     positional `VFunction(Int, Int, String)` (arity, address, name).
+//     `VEcho({input, output})` -> `VEcho(Value, Value)`;
+//     `VResidue({output})` -> `VResidue(Value)`.
+//   * `positionMetadata.operatorType` field is renamed `opType` to avoid the
+//     field/enum-name ambiguity the TypeSuperposition port flagged
+//     (`quantumType` -> `qtype`); purely a local rename, semantics identical.
+//   * Opcode/value constructor names do not collide with `Types` and are kept
+//     verbatim (OpPush/OpAdd/…, VInt/VFloat/…).
+//
+// ── Faithfulness notes: documented gaps / simplifications vs Bytecode.res ──
+//   * `paradoxType` constructors are PREFIXED `Px` (PxTypeSuperposition …
+//     PxMemoryPhantom). Reason: the unprefixed `NullPropagation` would COLLIDE
+//     with the global `StabilityFactor::NullPropagation(Int)` constructor in
+//     Types.affine (constructor names are global in AffineScript), exactly the
+//     situation TypeChecker.affine handled by C-prefixing its `ty` ctors. The
+//     payloads are opaque to every consumer (`OpInjectParadox(_)` discards
+//     them in Codegen and VM), so the spelling change is invisible to
+//     behaviour. The 1:1 mapping is: PxTypeSuperposition, PxPositionalSemantics,
+//     PxScopeLeakage, PxTemporalCorruption, PxArithmeticDrift, PxNullPropagation,
+//     PxContextCollapse, PxReservedWordRoulette, PxGlobalEntanglement,
+//     PxMemoryPhantom.
+//   * `disassemble` (a `Console.log`-based debug pretty-printer; not referenced
+//     by Codegen or the VM, not part of program behaviour) is OMITTED per the
+//     "omit Console/test-harness code" rule. The pure helpers it called —
+//     `value_to_string` and `opcode_to_string` — ARE ported: `value_to_string`
+//     is needed at runtime by the VM's positional-concatenation path, and
+//     `opcode_to_string` mirrors the .res disassembly text faithfully.
+//   * `Int.toString` / `Float.toString` / `String.padStart` -> `int_to_string`
+//     / `float_to_string` / (padStart only existed inside the omitted
+//     `disassemble`, so it is not needed). Array.map/joinWith -> map + join.
+//   * No `runTests` code exists in Bytecode.res, so nothing else is omitted.
+
+module Bytecode;
+
+use prelude::*;
+use string::{join};
+use Types::{Location};
+
+// ============================================
+// Operator position metadata
+// ============================================
+
+// Operators whose meaning flips with source position.
+pub enum OperatorType {
+  PlusOp,    // Can be addition OR concatenation
+  StarOp     // Can be multiplication OR exponentiation
+}
+
+// Position metadata for operators that change behavior based on location.
+// (ReScript inline record under `OpAdd`/`OpMul`; here a named struct.)
+pub struct PositionMetadata {
+  line: Int,
+  column: Int,
+  opType: OperatorType
+}
+
+// Paradox kinds (Px-prefixed; see header faithfulness note re: collision with
+// Types::StabilityFactor::NullPropagation).
+pub enum ParadoxType {
+  PxTypeSuperposition,
+  PxPositionalSemantics,
+  PxScopeLeakage,
+  PxTemporalCorruption,
+  PxArithmeticDrift,
+  PxNullPropagation,
+  PxContextCollapse,
+  PxReservedWordRoulette,
+  PxGlobalEntanglement,
+  PxMemoryPhantom
+}
+
+// ============================================
+// Runtime values
+// ============================================
+
+pub enum Value {
+  VInt(Int),
+  VFloat(Float),
+  VString(String),
+  VBool(Bool),
+  VNil,
+  VArray([Value]),
+  // ReScript VFunction({arity, address, name}) -> positional (arity, address, name).
+  VFunction(Int, Int, String),
+  // A single fiber witness: input `x` reached output `y` (one element of
+  // `Echo<A, B>`). ReScript VEcho({input, output}) -> positional (input, output).
+  VEcho(Value, Value),
+  // The residue of an echo after erasure: the input witness is gone
+  // (non-recoverable), only the reached output is retained. This is
+  // `EchoR<A, B>` at runtime. ReScript VResidue({output}) -> positional (output).
+  VResidue(Value)
+}
+
+// ============================================
+// Bytecode instructions
+// ============================================
+
+pub enum Opcode {
+  // Stack manipulation
+  OpPush(Value),          // Push constant onto stack
+  OpPop,                  // Pop top of stack
+  OpDup,                  // Duplicate top of stack
+
+  // Variables
+  OpGetLocal(Int),        // Get local variable
+  OpSetLocal(Int),        // Set local variable
+  OpGetGlobal(String),    // Get global variable
+  OpSetGlobal(String),    // Set global variable
+
+  // Arithmetic (with positional semantics metadata)
+  OpAdd(PositionMetadata),    // Addition (or concatenation based on position!)
+  OpSub,                      // Subtraction
+  OpMul(PositionMetadata),    // Multiplication (or exponentiation based on position!)
+  OpDiv,                      // Division
+  OpMod,                      // Modulo
+  OpNegate,                   // Unary negation
+
+  // Comparison
+  OpEq, OpNeq, OpLt, OpGt, OpLte, OpGte,
+
+  // Logical
+  OpAnd, OpOr, OpNot,
+
+  // Control flow
+  OpJump(Int),            // Unconditional jump
+  OpJumpIfFalse(Int),     // Conditional jump
+  OpCall(Int),            // Call function (arity)
+  OpReturn,               // Return from function
+
+  // Arrays
+  OpArray(Int),           // Create array with N elements
+  OpIndex,                // Array indexing
+
+  // Special (computational haptics)
+  OpTrace(String),        // Add trace point
+  OpCheckpoint(String),   // Add checkpoint
+  OpUpdateStability,      // Recalculate stability score
+  OpInjectParadox(ParadoxType),  // Activate a paradox
+
+  // Echo types (structured loss)
+  OpEcho,                 // Pop output then input, push a fiber witness VEcho(input, output)
+  OpEchoToResidue,        // Pop an echo, push its residue (erases the witness; costs stability)
+  OpResidueStrictlyLoses, // Pop a value, push VBool(true) iff it is a residue
+  OpEchoInput,            // Pop an echo, push its input witness (runtime error on a residue)
+  OpEchoOutput,           // Pop an echo or residue, push its retained output
+
+  // Debug
+  OpPrint(Bool),          // Print (println if true)
+  OpHalt                  // Stop execution
+}
+
+// ============================================
+// Compiled bytecode chunk + program
+// ============================================
+
+pub struct Chunk {
+  code: [Opcode],
+  constants: [Value],
+  // Source location mapping for error reporting.
+  locations: [Location]
+}
+
+pub struct BytecodeProgram {
+  main: Chunk,
+  functions: [(String, Chunk)]
+}
+
+// ============================================
+// Utilities
+// ============================================
+
+pub fn value_to_string(v: Value) -> String {
+  match v {
+    VInt(n) => int_to_string(n),
+    VFloat(f) => float_to_string(f),
+    VString(s) => "\"" ++ s ++ "\"",
+    VBool(b) => if b { "true" } else { "false" },
+    VNil => "nil",
+    VArray(arr) => {
+      let items = join(map(arr, value_to_string), ", ");
+      "[" ++ items ++ "]"
+    },
+    VFunction(_arity, _address, name) => "<function " ++ name ++ ">",
+    VEcho(input, output) =>
+      "echo(" ++ value_to_string(input) ++ " ↦ " ++ value_to_string(output) ++ ")",
+    VResidue(output) => "residue(↦ " ++ value_to_string(output) ++ ")"
+  }
+}
+
+pub fn opcode_to_string(op: Opcode) -> String {
+  match op {
+    OpPush(v) => "PUSH " ++ value_to_string(v),
+    OpPop => "POP",
+    OpDup => "DUP",
+    OpGetLocal(i) => "GET_LOCAL " ++ int_to_string(i),
+    OpSetLocal(i) => "SET_LOCAL " ++ int_to_string(i),
+    OpGetGlobal(name) => "GET_GLOBAL " ++ name,
+    OpSetGlobal(name) => "SET_GLOBAL " ++ name,
+    OpAdd(_p) => "ADD",
+    OpSub => "SUB",
+    OpMul(_p) => "MUL",
+    OpDiv => "DIV",
+    OpMod => "MOD",
+    OpNegate => "NEGATE",
+    OpEq => "EQ",
+    OpNeq => "NEQ",
+    OpLt => "LT",
+    OpGt => "GT",
+    OpLte => "LTE",
+    OpGte => "GTE",
+    OpAnd => "AND",
+    OpOr => "OR",
+    OpNot => "NOT",
+    OpJump(offset) => "JUMP " ++ int_to_string(offset),
+    OpJumpIfFalse(offset) => "JUMP_IF_FALSE " ++ int_to_string(offset),
+    OpCall(arity) => "CALL " ++ int_to_string(arity),
+    OpReturn => "RETURN",
+    OpArray(size) => "ARRAY " ++ int_to_string(size),
+    OpIndex => "INDEX",
+    OpTrace(msg) => "TRACE \"" ++ msg ++ "\"",
+    OpCheckpoint(name) => "CHECKPOINT \"" ++ name ++ "\"",
+    OpUpdateStability => "UPDATE_STABILITY",
+    OpInjectParadox(_p) => "INJECT_PARADOX",
+    OpEcho => "ECHO",
+    OpEchoToResidue => "ECHO_TO_RESIDUE",
+    OpResidueStrictlyLoses => "RESIDUE_STRICTLY_LOSES",
+    OpEchoInput => "ECHO_INPUT",
+    OpEchoOutput => "ECHO_OUTPUT",
+    OpPrint(is_println) => if is_println { "PRINTLN" } else { "PRINT" },
+    OpHalt => "HALT"
+  }
+}

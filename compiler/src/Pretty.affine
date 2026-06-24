@@ -1,0 +1,515 @@
+// SPDX-License-Identifier: MPL-2.0
+// Pretty.affine — pretty-printer for the Error-Lang AST
+// (ported from compiler/src/Pretty.res).
+//
+// Converts AST nodes into formatted source strings: main/end blocks, gutter
+// blocks, let/if/while/for statements, function declarations, struct
+// definitions. Used by `fmt`, codegen output, and REPL display.
+//
+// ── AffineScript port: state model ──
+// Pretty.res threads an imperative `printer` with `mutable buf` / `mutable
+// indent`. AffineScript has no mutable struct fields, so `Printer` is an
+// immutable struct and every printing helper TAKES a `Printer` and RETURNS a
+// new one (full-record reconstruction). The mutually-recursive ReScript
+// `let rec … and …` block becomes ordinary top-level `fn`s that thread the
+// printer left-to-right (`let p1 = ppx(p, …); let p2 = ppy(p1, …); …`).
+//   * `emit(p, s)` -> rebuild with `buf ++ s`.
+//   * `newline(p)` -> append "\n" then `indent * indentWidth` spaces (built
+//     with the string `repeat`).
+//   * `indented(p, f)` -> bump `indent`, thread the body, then restore the
+//     indent to its prior value (the printer returned by the body carries the
+//     accumulated buffer; only `indent` is reset).
+//   * `Array.forEachWithIndex` -> an index-carrying fold over the list,
+//     threading the printer; `i > 0` separators are reproduced exactly.
+//
+// ── Faithfulness notes: documented gaps / simplifications vs Pretty.res ──
+//   * No behaviour omitted: identical output for every node, including the
+//     "(lhs op rhs)" parenthesisation of binaries, the `"` / `\` escaping in
+//     string literals, the ` ? : ` ternary, `fn(...) -> T => e` / `{ … }`
+//     lambdas, `elseif`/`else` chains, and the trailing newline after a
+//     program. The public API (`program_to_string`,
+//     `program_to_string_with_config`, `expr_to_string`, `stmt_to_string`,
+//     `decl_to_string`) is preserved.
+//   * No `runTests`/Console code exists in Pretty.res, so nothing is omitted.
+
+module Pretty;
+
+use prelude::*;
+use string::{repeat, replace};
+use Types::*;
+
+// ============================================================
+// Configuration
+// ============================================================
+
+pub struct Config {
+  indentWidth: Int, // Spaces per indent level (2 or 4)
+  maxWidth: Int     // Advisory max line width
+}
+
+pub fn default_config() -> Config {
+  #{ indentWidth: 2, maxWidth: 100 }
+}
+
+// ============================================================
+// Internal printer (immutable; threaded)
+// ============================================================
+
+struct Printer {
+  buf: String,
+  indent: Int,
+  config: Config
+}
+
+fn make_printer(config: Config) -> Printer {
+  #{ buf: "", indent: 0, config: config }
+}
+
+fn emit(p: Printer, s: String) -> Printer {
+  #{ buf: p.buf ++ s, indent: p.indent, config: p.config }
+}
+
+fn with_indent(p: Printer, indent: Int) -> Printer {
+  #{ buf: p.buf, indent: indent, config: p.config }
+}
+
+fn newline(p: Printer) -> Printer {
+  let pad = repeat(" ", p.indent * p.config.indentWidth);
+  emit(p, "\n" ++ pad)
+}
+
+// ============================================================
+// Type expressions
+// ============================================================
+
+fn pp_type_expr(p: Printer, ty: TypeExpr) -> Printer {
+  match ty {
+    TyInt => emit(p, "int"),
+    TyFloat => emit(p, "float"),
+    TyString => emit(p, "string"),
+    TyBool => emit(p, "bool"),
+    TyArray(inner) => {
+      let p1 = emit(p, "[");
+      let p2 = pp_type_expr(p1, inner);
+      emit(p2, "]")
+    },
+    TyEcho(a, b) => pp_echo_like(p, "Echo", a, b),
+    TyEchoResidue(a, b) => pp_echo_like(p, "EchoR", a, b),
+    TyIdent(name) => emit(p, name)
+  }
+}
+
+// Print an Echo/EchoR head with its optional `<A>` or `<A, B>` arguments.
+fn pp_echo_like(p: Printer, head: String, a: Option<TypeExpr>, b: Option<TypeExpr>) -> Printer {
+  let p0 = emit(p, head);
+  match a {
+    None => p0,
+    Some(ta) => match b {
+      None => {
+        let p1 = emit(p0, "<");
+        let p2 = pp_type_expr(p1, ta);
+        emit(p2, ">")
+      },
+      Some(tb) => {
+        let p1 = emit(p0, "<");
+        let p2 = pp_type_expr(p1, ta);
+        let p3 = emit(p2, ", ");
+        let p4 = pp_type_expr(p3, tb);
+        emit(p4, ">")
+      }
+    }
+  }
+}
+
+fn binary_op_str(op: BinaryOp) -> String {
+  match op {
+    Add => "+",
+    Sub => "-",
+    Mul => "*",
+    Div => "/",
+    Mod => "%",
+    Eq => "==",
+    Neq => "!=",
+    Lt => "<",
+    Gt => ">",
+    Lte => "<=",
+    Gte => ">=",
+    BAnd => "&",
+    BOr => "|",
+    BXor => "^",
+    Shl => "<<",
+    Shr => ">>",
+    LAnd => "and",
+    LOr => "or"
+  }
+}
+
+fn pp_unary_op(p: Printer, op: UnaryOp) -> Printer {
+  match op {
+    Neg => emit(p, "-"),
+    LNot => emit(p, "not "),
+    BNot => emit(p, "~")
+  }
+}
+
+// ============================================================
+// Expressions
+// ============================================================
+
+fn pp_expr(p: Printer, expr: Expr) -> Printer {
+  match expr {
+    IntLit(n, _loc) => emit(p, int_to_string(n)),
+    FloatLit(f, _loc) => emit(p, float_to_string(f)),
+    StringLit(s, _loc) => {
+      let p1 = emit(p, "\"");
+      let escaped = replace(replace(s, "\\", "\\\\"), "\"", "\\\"");
+      let p2 = emit(p1, escaped);
+      emit(p2, "\"")
+    },
+    BoolLit(b, _loc) => emit(p, if b { "true" } else { "false" }),
+    NilLit(_loc) => emit(p, "nil"),
+    Ident(name, _loc) => emit(p, name),
+
+    Array(elems, _loc) => {
+      let p1 = emit(p, "[");
+      let p2 = pp_expr_list(p1, elems);
+      emit(p2, "]")
+    },
+
+    Binary(lhs, op, rhs, _loc) => {
+      let p1 = emit(p, "(");
+      let p2 = pp_expr(p1, lhs);
+      let p3 = emit(p2, " ");
+      let p4 = emit(p3, binary_op_str(op));
+      let p5 = emit(p4, " ");
+      let p6 = pp_expr(p5, rhs);
+      emit(p6, ")")
+    },
+
+    Unary(op, operand, _loc) => {
+      let p1 = pp_unary_op(p, op);
+      pp_expr(p1, operand)
+    },
+
+    Call(callee, args, _loc) => {
+      let p1 = pp_expr(p, callee);
+      let p2 = emit(p1, "(");
+      let p3 = pp_expr_list(p2, args);
+      emit(p3, ")")
+    },
+
+    Index(target, index, _loc) => {
+      let p1 = pp_expr(p, target);
+      let p2 = emit(p1, "[");
+      let p3 = pp_expr(p2, index);
+      emit(p3, "]")
+    },
+
+    Member(target, field, _loc) => {
+      let p1 = pp_expr(p, target);
+      let p2 = emit(p1, ".");
+      emit(p2, field)
+    },
+
+    Ternary(cond, then_, else_, _loc) => {
+      let p1 = pp_expr(p, cond);
+      let p2 = emit(p1, " ? ");
+      let p3 = pp_expr(p2, then_);
+      let p4 = emit(p3, " : ");
+      pp_expr(p4, else_)
+    },
+
+    Lambda(params, ret_ty, body, _loc) => {
+      let p1 = emit(p, "fn(");
+      let p2 = pp_param_list(p1, params);
+      let p3 = emit(p2, ")");
+      let p4 = match ret_ty {
+        Some(ty) => {
+          let pa = emit(p3, " -> ");
+          pp_type_expr(pa, ty)
+        },
+        None => p3
+      };
+      match body {
+        LambdaExpr(e) => {
+          let pb = emit(p4, " => ");
+          pp_expr(pb, e)
+        },
+        LambdaBlock(stmts) => {
+          let pb = emit(p4, " {");
+          let pc = pp_stmt_block(pb, stmts);
+          let pd = newline(pc);
+          emit(pd, "}")
+        }
+      }
+    }
+  }
+}
+
+// Comma-separated expression list (`Array.forEachWithIndex` with `i > 0` sep).
+fn pp_expr_list(p: Printer, elems: [Expr]) -> Printer {
+  let mut pp = p;
+  let mut i = 0;
+  let n = len(elems);
+  while i < n {
+    if i > 0 { pp = emit(pp, ", "); }
+    pp = pp_expr(pp, elems[i]);
+    i = i + 1;
+  }
+  pp
+}
+
+// Comma-separated parameter list: `name` then optional `: Type`.
+fn pp_param_list(p: Printer, params: [Param]) -> Printer {
+  let mut pp = p;
+  let mut i = 0;
+  let n = len(params);
+  while i < n {
+    if i > 0 { pp = emit(pp, ", "); }
+    let param = params[i];
+    pp = emit(pp, param.name);
+    pp = match param.type_ {
+      Some(ty) => {
+        let pa = emit(pp, ": ");
+        pp_type_expr(pa, ty)
+      },
+      None => pp
+    };
+    i = i + 1;
+  }
+  pp
+}
+
+// ============================================================
+// Statements
+// ============================================================
+
+fn pp_stmt(p: Printer, stmt: Stmt) -> Printer {
+  match stmt {
+    LetStmt(mutable_, name, type_, value, _loc) => {
+      let p1 = emit(p, "let ");
+      let p2 = if mutable_ { emit(p1, "mutable ") } else { p1 };
+      let p3 = emit(p2, name);
+      let p4 = match type_ {
+        Some(ty) => {
+          let pa = emit(p3, ": ");
+          pp_type_expr(pa, ty)
+        },
+        None => p3
+      };
+      let p5 = emit(p4, " = ");
+      pp_expr(p5, value)
+    },
+
+    AssignStmt(target, value, _loc) => {
+      let p1 = pp_expr(p, target);
+      let p2 = emit(p1, " = ");
+      pp_expr(p2, value)
+    },
+
+    IfStmt(cond, then_, elseifs, else_, _loc) => {
+      let p1 = emit(p, "if ");
+      let p2 = pp_expr(p1, cond);
+      let p3 = pp_stmt_block(p2, then_);
+      let p4 = pp_elseifs(p3, elseifs);
+      let p5 = match else_ {
+        Some(else_body) => {
+          let pa = newline(p4);
+          let pb = emit(pa, "else");
+          pp_stmt_block(pb, else_body)
+        },
+        None => p4
+      };
+      let p6 = newline(p5);
+      emit(p6, "end")
+    },
+
+    WhileStmt(cond, body, _loc) => {
+      let p1 = emit(p, "while ");
+      let p2 = pp_expr(p1, cond);
+      let p3 = pp_stmt_block(p2, body);
+      let p4 = newline(p3);
+      emit(p4, "end")
+    },
+
+    ForStmt(var, iter, body, _loc) => {
+      let p1 = emit(p, "for ");
+      let p2 = emit(p1, var);
+      let p3 = emit(p2, " in ");
+      let p4 = pp_expr(p3, iter);
+      let p5 = pp_stmt_block(p4, body);
+      let p6 = newline(p5);
+      emit(p6, "end")
+    },
+
+    ReturnStmt(value, _loc) => {
+      let p1 = emit(p, "return");
+      match value {
+        Some(v) => {
+          let pa = emit(p1, " ");
+          pp_expr(pa, v)
+        },
+        None => p1
+      }
+    },
+
+    BreakStmt(_loc) => emit(p, "break"),
+
+    ContinueStmt(_loc) => emit(p, "continue"),
+
+    PrintStmt(is_println, args, _loc) => {
+      let p1 = emit(p, if is_println { "println" } else { "print" });
+      let p2 = emit(p1, "(");
+      let p3 = pp_expr_list(p2, args);
+      emit(p3, ")")
+    },
+
+    GutterBlock(_tokens, _recovered, _loc) => emit(p, "gutter { ... }"),
+
+    ExprStmt(e) => pp_expr(p, e)
+  }
+}
+
+// Indented block of statements: each statement on its own newline.
+fn pp_stmt_block(p: Printer, stmts: [Stmt]) -> Printer {
+  let outer = p.indent;
+  let mut pp = with_indent(p, outer + 1);
+  let mut i = 0;
+  let n = len(stmts);
+  while i < n {
+    pp = newline(pp);
+    pp = pp_stmt(pp, stmts[i]);
+    i = i + 1;
+  }
+  with_indent(pp, outer)
+}
+
+fn pp_elseifs(p: Printer, elseifs: [(Expr, [Stmt])]) -> Printer {
+  let mut pp = p;
+  let mut i = 0;
+  let n = len(elseifs);
+  while i < n {
+    let (eif_cond, eif_body) = elseifs[i];
+    pp = newline(pp);
+    pp = emit(pp, "elseif ");
+    pp = pp_expr(pp, eif_cond);
+    pp = pp_stmt_block(pp, eif_body);
+    i = i + 1;
+  }
+  pp
+}
+
+// ============================================================
+// Declarations
+// ============================================================
+
+fn pp_decl(p: Printer, decl: Decl) -> Printer {
+  match decl {
+    FunctionDecl(name, params, return_type, body, _loc) => {
+      let p1 = emit(p, "function ");
+      let p2 = emit(p1, name);
+      let p3 = emit(p2, "(");
+      let p4 = pp_param_list(p3, params);
+      let p5 = emit(p4, ")");
+      let p6 = match return_type {
+        Some(ty) => {
+          let pa = emit(p5, " -> ");
+          pp_type_expr(pa, ty)
+        },
+        None => p5
+      };
+      let p7 = pp_stmt_block(p6, body);
+      let p8 = newline(p7);
+      emit(p8, "end")
+    },
+
+    StructDecl(name, fields, _loc) => {
+      let p1 = emit(p, "struct ");
+      let p2 = emit(p1, name);
+      let p3 = pp_struct_fields(p2, fields);
+      let p4 = newline(p3);
+      emit(p4, "end")
+    },
+
+    MainBlock(body, _loc) => {
+      let p1 = emit(p, "main");
+      let p2 = pp_stmt_block(p1, body);
+      let p3 = newline(p2);
+      emit(p3, "end")
+    },
+
+    StmtDecl(stmt) => pp_stmt(p, stmt)
+  }
+}
+
+// Indented `name: Type` fields for a struct declaration.
+fn pp_struct_fields(p: Printer, fields: [(String, TypeExpr)]) -> Printer {
+  let outer = p.indent;
+  let mut pp = with_indent(p, outer + 1);
+  let mut i = 0;
+  let n = len(fields);
+  while i < n {
+    let (fname, ftype) = fields[i];
+    pp = newline(pp);
+    pp = emit(pp, fname);
+    pp = emit(pp, ": ");
+    pp = pp_type_expr(pp, ftype);
+    i = i + 1;
+  }
+  with_indent(pp, outer)
+}
+
+fn pp_program(p: Printer, prog: Program) -> Printer {
+  let mut pp = p;
+  let mut i = 0;
+  let decls = prog.declarations;
+  let n = len(decls);
+  while i < n {
+    if i > 0 {
+      pp = newline(pp);
+      pp = newline(pp);
+    }
+    pp = pp_decl(pp, decls[i]);
+    i = i + 1;
+  }
+  emit(pp, "\n")
+}
+
+// ============================================================
+// Public API
+// ============================================================
+
+/// Pretty-print a program to a string with default configuration.
+pub fn program_to_string(prog: Program) -> String {
+  let p = make_printer(default_config());
+  let p2 = pp_program(p, prog);
+  p2.buf
+}
+
+/// Pretty-print a program with custom configuration.
+pub fn program_to_string_with_config(prog: Program, config: Config) -> String {
+  let p = make_printer(config);
+  let p2 = pp_program(p, prog);
+  p2.buf
+}
+
+/// Pretty-print a single expression to a string.
+pub fn expr_to_string(expr: Expr) -> String {
+  let p = make_printer(default_config());
+  let p2 = pp_expr(p, expr);
+  p2.buf
+}
+
+/// Pretty-print a single statement to a string.
+pub fn stmt_to_string(stmt: Stmt) -> String {
+  let p = make_printer(default_config());
+  let p2 = pp_stmt(p, stmt);
+  p2.buf
+}
+
+/// Pretty-print a single declaration to a string.
+pub fn decl_to_string(decl: Decl) -> String {
+  let p = make_printer(default_config());
+  let p2 = pp_decl(p, decl);
+  p2.buf
+}

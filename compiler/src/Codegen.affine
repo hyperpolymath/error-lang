@@ -1,0 +1,526 @@
+// SPDX-License-Identifier: MPL-2.0
+// Codegen.affine — AST-to-bytecode compiler for Error-Lang
+// (ported from compiler/src/Codegen.res).
+//
+// Compiles parsed AST into bytecode while preserving:
+//   - Positional semantics metadata (line/column attached to OpAdd/OpMul)
+//   - Computational haptics trace points (OpCheckpoint markers)
+//   - Paradox injection points
+//
+// ── AffineScript port: state model ──
+// The ReScript compiler is a `mutable` struct whose `emit`/`addConstant`/
+// `addLocal` push into `code`/`constants`/`locations`/`locals` in place, and
+// whose jump-patching writes `c.code[idx] = …` directly. AffineScript has no
+// mutable struct fields, no record-spread, and no in-place array assignment,
+// so:
+//   * `Compiler` is an immutable struct; every "mutating" helper (`emit`,
+//     `add_constant`, `add_local`, `set_code_at`) TAKES a Compiler and RETURNS
+//     a new one via full-record reconstruction.
+//   * The ReScript `compileExpr : compiler -> expr -> unit` (mutates `c`)
+//     becomes `compile_expr : (Compiler, Expr) -> (Compiler, Location)`: it
+//     threads the rebuilt compiler AND returns the expression's own location.
+//     Returning the location (a copyable summary) replaces the .res
+//     `expr->getLocation` re-traversal — under affine ownership the `expr` is
+//     consumed by `compile_expr` and cannot be inspected again afterwards (the
+//     same restructuring TypeChecker.affine used to retire its `exprLoc`
+//     helper). `compile_stmt`/`compile_decl`/`compile` thread the Compiler the
+//     same way.
+//   * In-place jump backpatching `c.code[elseJump] = OpJump(off)` is rendered
+//     by `set_code_at` (rebuild the code array with the patched opcode at the
+//     index), mirroring Parser.affine's `set_token_at`.
+//
+// Constructors come from `Types` (Expr/Stmt/Decl/BinaryOp/UnaryOp/…) and
+// `Bytecode` (Opcode/Value/PositionMetadata/OperatorType). The Bytecode
+// `paradoxType` rename (Px-prefix) and `operatorType`-field rename
+// (`opType`) carry over; Codegen does not construct paradoxes, but it does
+// build `PositionMetadata { line, column, opType: PlusOp/StarOp }`.
+//
+// ── Faithfulness notes: documented gaps / simplifications vs Codegen.res ──
+//   * The lowering is reproduced arm-for-arm: same opcodes emitted in the same
+//     order for every Expr/Stmt/Decl, the same "not implemented yet" fallbacks
+//     (Member/Lambda/non-echo Call -> OpPush(VNil); BAnd/BOr/BXor/Shl/Shr ->
+//     OpPush(VNil); BNot/array-assign -> no-op; struct -> OpCheckpoint), the
+//     same ternary/if/while jump backpatching offsets (`elseStart - jump - 1`
+//     etc.), and the same Echo-builtin dispatch (echo / echo_to_residue /
+//     residue_strictly_loses / echo_input / echo_output push their args
+//     left-to-right then emit the dedicated opcode).
+//   * The five Echo builtins lower EXACTLY as the .res: arguments compiled
+//     left-to-right (so for `echo(x, y)` the output `y` lands on top, which is
+//     what OpEcho pops first), then the matching OpEcho* opcode is emitted.
+//   * `addConstant` is ported verbatim even though — exactly as in Codegen.res
+//     — nothing calls it (constants are inlined into `OpPush(VInt(n))` etc.).
+//     Kept for parity; `constants` stays empty, matching the .res output.
+//   * ReScript `try/catch` around `compile` wrapped exceptions into
+//     `Error(...)`. The AffineScript port performs no throwing operations
+//     (all array access is via safe rebuild/index), so `compile` returns
+//     `Result<BytecodeProgram, String>` and always yields `Ok(...)` — the
+//     same observable result the .res produced on every input that did not
+//     throw. There is no exception machinery to translate.
+//   * `Array.forEach`/`Array.push`/`Array.length` -> explicit threading folds
+//     (`compile_each_expr`, `compile_each_stmt`, `emit_elseifs`) and the
+//     `len`/`++` builtins. `expr->getLocation` standalone helper -> the
+//     location returned by `compile_expr` (see state model above); a tiny
+//     read-only `get_location` is still provided for the few call sites that
+//     need a location WITHOUT compiling (none remain, so it is omitted).
+//   * No `runTests`/Console code exists in Codegen.res, so nothing is omitted.
+
+module Codegen;
+
+use prelude::*;
+use Types::*;
+use Bytecode::*;
+
+// ============================================
+// Compiler state (immutable; threaded)
+// ============================================
+
+pub struct Compiler {
+  code: [Opcode],
+  constants: [Value],
+  locations: [Location],
+  localCount: Int,
+  locals: [String]
+}
+
+pub fn make() -> Compiler {
+  #{ code: [], constants: [], locations: [], localCount: 0, locals: [] }
+}
+
+// Emit a bytecode instruction (append op + location). Returns a new Compiler.
+fn emit(c: Compiler, op: Opcode, loc: Location) -> Compiler {
+  #{ code: c.code ++ [op], constants: c.constants,
+     locations: c.locations ++ [loc], localCount: c.localCount, locals: c.locals }
+}
+
+// Add a constant to the constant pool, returning (index, new Compiler).
+// (Parity helper — unused, like Codegen.res's addConstant.)
+fn add_constant(c: Compiler, v: Value) -> (Int, Compiler) {
+  let c2 = #{ code: c.code, constants: c.constants ++ [v],
+              locations: c.locations, localCount: c.localCount, locals: c.locals };
+  (len(c2.constants) - 1, c2)
+}
+
+// Resolve a local variable to its slot index (first match), read-only.
+fn resolve_local(c: Compiler, name: String) -> Option<Int> {
+  let mut out = None;
+  let mut found = false;
+  let mut i = 0;
+  let n = len(c.locals);
+  while i < n {
+    if !found && c.locals[i] == name {
+      out = Some(i);
+      found = true;
+    }
+    i = i + 1;
+  }
+  out
+}
+
+// Add a local variable, returning (slot index, new Compiler).
+fn add_local(c: Compiler, name: String) -> (Int, Compiler) {
+  let c2 = #{ code: c.code, constants: c.constants, locations: c.locations,
+              localCount: c.localCount + 1, locals: c.locals ++ [name] };
+  (c2.localCount - 1, c2)
+}
+
+// Backpatch: replace code[idx] with `op` (rebuild array). Mirrors the .res
+// in-place `c.code[idx] = op`. See Parser.affine `set_token_at`.
+fn set_code_at(c: Compiler, idx: Int, op: Opcode) -> Compiler {
+  let mut out = [];
+  let mut i = 0;
+  let n = len(c.code);
+  while i < n {
+    if i == idx { out = out ++ [op]; } else { out = out ++ [c.code[i]]; }
+    i = i + 1;
+  }
+  #{ code: out, constants: c.constants, locations: c.locations,
+     localCount: c.localCount, locals: c.locals }
+}
+
+// ============================================
+// Expression compilation
+//
+// `compile_expr` emits the ops for `expr` and returns (new Compiler, the
+// expression's own Location). Returning the location lets `ExprStmt` emit the
+// trailing OpPop without re-traversing the (already consumed) node.
+// ============================================
+
+fn compile_expr(c: Compiler, expr: Expr) -> (Compiler, Location) {
+  match expr {
+    IntLit(n, loc) => (emit(c, OpPush(VInt(n)), loc), loc),
+    FloatLit(f, loc) => (emit(c, OpPush(VFloat(f)), loc), loc),
+    StringLit(s, loc) => (emit(c, OpPush(VString(s)), loc), loc),
+    BoolLit(b, loc) => (emit(c, OpPush(VBool(b)), loc), loc),
+    NilLit(loc) => (emit(c, OpPush(VNil), loc), loc),
+
+    Ident(name, loc) => {
+      // Try local first, then global.
+      let c2 = match resolve_local(c, name) {
+        Some(index) => emit(c, OpGetLocal(index), loc),
+        None => emit(c, OpGetGlobal(name), loc)
+      };
+      (c2, loc)
+    },
+
+    Array(elements, loc) => {
+      // Compile each element, then create an array with N elements.
+      let nelem = len(elements);
+      let c1 = compile_each_expr(c, elements);
+      (emit(c1, OpArray(nelem), loc), loc)
+    },
+
+    Binary(left, op, right, loc) => {
+      // Compile operands left-to-right.
+      let (c1, _l1) = compile_expr(c, left);
+      let (c2, _l2) = compile_expr(c1, right);
+      // Emit operator, carrying positional metadata for +/*.
+      let op_code = match op {
+        Add => {
+          let pos = #{ line: loc.start.line, column: loc.start.column, opType: PlusOp };
+          OpAdd(pos)
+        },
+        Sub => OpSub,
+        Mul => {
+          let pos = #{ line: loc.start.line, column: loc.start.column, opType: StarOp };
+          OpMul(pos)
+        },
+        Div => OpDiv,
+        Mod => OpMod,
+        Eq => OpEq,
+        Neq => OpNeq,
+        Lt => OpLt,
+        Gt => OpGt,
+        Lte => OpLte,
+        Gte => OpGte,
+        LAnd => OpAnd,
+        LOr => OpOr,
+        // Bitwise ops not implemented yet -> push nil (matches .res).
+        BAnd => OpPush(VNil),
+        BOr => OpPush(VNil),
+        BXor => OpPush(VNil),
+        Shl => OpPush(VNil),
+        Shr => OpPush(VNil)
+      };
+      (emit(c2, op_code, loc), loc)
+    },
+
+    Unary(op, operand, loc) => {
+      let (c1, _l1) = compile_expr(c, operand);
+      let c2 = match op {
+        Neg => emit(c1, OpNegate, loc),
+        LNot => emit(c1, OpNot, loc),
+        BNot => c1  // Not implemented (no-op, as in .res).
+      };
+      (c2, loc)
+    },
+
+    Call(callee, args, loc) => {
+      // Echo builtins compile to dedicated opcodes (the VM has no general call
+      // yet). Arguments are pushed left-to-right; for `echo(x, y)` the output
+      // `y` is on top, which is exactly what OpEcho pops first.
+      let c2 = match callee {
+        Ident(name, _id_loc) =>
+          if name == "echo" {
+            let c1 = compile_each_expr(c, args);
+            emit(c1, OpEcho, loc)
+          } else if name == "echo_to_residue" {
+            let c1 = compile_each_expr(c, args);
+            emit(c1, OpEchoToResidue, loc)
+          } else if name == "residue_strictly_loses" {
+            let c1 = compile_each_expr(c, args);
+            emit(c1, OpResidueStrictlyLoses, loc)
+          } else if name == "echo_input" {
+            let c1 = compile_each_expr(c, args);
+            emit(c1, OpEchoInput, loc)
+          } else if name == "echo_output" {
+            let c1 = compile_each_expr(c, args);
+            emit(c1, OpEchoOutput, loc)
+          } else {
+            // Other function calls not fully implemented yet.
+            emit(c, OpPush(VNil), loc)
+          },
+        _ => emit(c, OpPush(VNil), loc)
+      };
+      (c2, loc)
+    },
+
+    Index(base, index, loc) => {
+      let (c1, _l1) = compile_expr(c, base);
+      let (c2, _l2) = compile_expr(c1, index);
+      (emit(c2, OpIndex, loc), loc)
+    },
+
+    Member(base, _field, loc) => {
+      // Member access not implemented -> push nil. (The base is NOT compiled
+      // in Codegen.res's Member arm; it is discarded with `_obj`.)
+      (emit(c, OpPush(VNil), loc), loc)
+    },
+
+    Ternary(cond, then_, else_, loc) => {
+      // Compile condition.
+      let (c1, _lc) = compile_expr(c, cond);
+
+      // Jump-if-false to else branch (offset patched later).
+      let else_jump = len(c1.code);
+      let c2 = emit(c1, OpJumpIfFalse(0), loc);
+
+      // Compile then branch.
+      let (c3, _lt) = compile_expr(c2, then_);
+
+      // Jump over else branch (patched later).
+      let end_jump = len(c3.code);
+      let c4 = emit(c3, OpJump(0), loc);
+
+      // Patch the else jump.
+      let else_start = len(c4.code);
+      let c5 = set_code_at(c4, else_jump, OpJumpIfFalse(else_start - else_jump - 1));
+
+      // Compile else branch.
+      let (c6, _le) = compile_expr(c5, else_);
+
+      // Patch the end jump.
+      let end_pos = len(c6.code);
+      let c7 = set_code_at(c6, end_jump, OpJump(end_pos - end_jump - 1));
+      (c7, loc)
+    },
+
+    Lambda(_params, _ret, _body, loc) => {
+      // Lambdas not implemented -> push nil.
+      (emit(c, OpPush(VNil), loc), loc)
+    }
+  }
+}
+
+// Compile a sequence of expressions left-to-right, threading the Compiler.
+fn compile_each_expr(c: Compiler, exprs: [Expr]) -> Compiler {
+  let n = len(exprs);
+  let mut i = 0;
+  let mut cc = c;
+  while i < n {
+    let (c2, _loc) = compile_expr(cc, exprs[i]);
+    cc = c2;
+    i = i + 1;
+  }
+  cc
+}
+
+// ============================================
+// Statement compilation
+// ============================================
+
+fn compile_stmt(c: Compiler, stmt: Stmt) -> Compiler {
+  match stmt {
+    LetStmt(_mutable, name, _type, value, loc) => {
+      // Compile initializer, then bind a fresh local and store into it.
+      let (c1, _lv) = compile_expr(c, value);
+      let (index, c2) = add_local(c1, name);
+      emit(c2, OpSetLocal(index), loc)
+    },
+
+    AssignStmt(target, value, loc) => {
+      // Compile the value first.
+      let (c1, _lv) = compile_expr(c, value);
+      match target {
+        Ident(name, _id_loc) =>
+          match resolve_local(c1, name) {
+            Some(index) => emit(c1, OpSetLocal(index), loc),
+            None => emit(c1, OpSetGlobal(name), loc)
+          },
+        Index(base, index, _il) => {
+          // Array assignment not fully implemented: compile both sides.
+          let (c2, _lb) = compile_expr(c1, base);
+          let (c3, _li) = compile_expr(c2, index);
+          c3
+        },
+        _ => c1  // Other assignment targets not implemented.
+      }
+    },
+
+    IfStmt(cond, then_, elseifs, else_, loc) => {
+      // Compile condition.
+      let (c1, _lc) = compile_expr(c, cond);
+
+      // Jump-if-false to elseif/else (patched later).
+      let then_jump = len(c1.code);
+      let c2 = emit(c1, OpJumpIfFalse(0), loc);
+
+      // Compile then branch.
+      let c3 = compile_each_stmt(c2, then_);
+
+      // Jump to end (patched later).
+      let end_jump = len(c3.code);
+      let c4 = emit(c3, OpJump(0), loc);
+
+      // Patch the then jump.
+      let else_start = len(c4.code);
+      let c5 = set_code_at(c4, then_jump, OpJumpIfFalse(else_start - then_jump - 1));
+
+      // Compile elseifs (simplified — not handling multiple elseifs, as .res).
+      let c6 = emit_elseifs(c5, elseifs, loc);
+
+      // Compile else branch.
+      let c7 = match else_ {
+        Some(body) => compile_each_stmt(c6, body),
+        None => c6
+      };
+
+      // Patch the end jump.
+      let end_pos = len(c7.code);
+      set_code_at(c7, end_jump, OpJump(end_pos - end_jump - 1))
+    },
+
+    WhileStmt(cond, body, loc) => {
+      let loop_start = len(c.code);
+
+      // Compile condition.
+      let (c1, _lc) = compile_expr(c, cond);
+
+      // Jump-if-false to end (patched later).
+      let exit_jump = len(c1.code);
+      let c2 = emit(c1, OpJumpIfFalse(0), loc);
+
+      // Compile body.
+      let c3 = compile_each_stmt(c2, body);
+
+      // Jump back to loop start.
+      let loop_end = len(c3.code);
+      let c4 = emit(c3, OpJump(loop_start - loop_end - 1), loc);
+
+      // Patch the exit jump.
+      let end_pos = len(c4.code);
+      set_code_at(c4, exit_jump, OpJumpIfFalse(end_pos - exit_jump - 1))
+    },
+
+    ForStmt(var_name, iter, body, loc) => {
+      // For loops over arrays (simplified placeholder, as .res).
+      let (c1, _li) = compile_expr(c, iter);
+      let (var_index, c2) = add_local(c1, var_name);
+      let c3 = emit(c2, OpSetLocal(var_index), loc);
+      compile_each_stmt(c3, body)
+    },
+
+    ReturnStmt(value, loc) =>
+      match value {
+        Some(expr) => {
+          let (c1, _le) = compile_expr(c, expr);
+          emit(c1, OpReturn, loc)
+        },
+        None => {
+          let c1 = emit(c, OpPush(VNil), loc);
+          emit(c1, OpReturn, loc)
+        }
+      },
+
+    BreakStmt(loc) => emit(c, OpJump(0), loc),       // Break not fully implemented.
+    ContinueStmt(loc) => emit(c, OpJump(0), loc),    // Continue not fully implemented.
+
+    PrintStmt(is_println, args, loc) => {
+      // Compile each argument and print it.
+      let n = len(args);
+      let mut i = 0;
+      let mut cc = c;
+      while i < n {
+        let (c1, _la) = compile_expr(cc, args[i]);
+        cc = emit(c1, OpPrint(is_println), loc);
+        i = i + 1;
+      }
+      cc
+    },
+
+    GutterBlock(_tokens, _recovered, loc) => {
+      // Gutter blocks are error recovery — emit a checkpoint.
+      emit(c, OpCheckpoint("gutter"), loc)
+    },
+
+    ExprStmt(expr) => {
+      // Compile the expression, then pop its value. The location returned by
+      // compile_expr stands in for the .res `expr->getLocation` (the node is
+      // already consumed).
+      let (c1, loc) = compile_expr(c, expr);
+      emit(c1, OpPop, loc)
+    }
+  }
+}
+
+// Compile a sequence of statements, threading the Compiler.
+fn compile_each_stmt(c: Compiler, stmts: [Stmt]) -> Compiler {
+  let n = len(stmts);
+  let mut i = 0;
+  let mut cc = c;
+  while i < n {
+    cc = compile_stmt(cc, stmts[i]);
+    i = i + 1;
+  }
+  cc
+}
+
+// Compile elseif (cond, body) pairs (each self-patching its own skip jump).
+fn emit_elseifs(c: Compiler, elseifs: [(Expr, [Stmt])], loc: Location) -> Compiler {
+  let n = len(elseifs);
+  let mut i = 0;
+  let mut cc = c;
+  while i < n {
+    let (cond, body) = elseifs[i];
+    let (c1, _lc) = compile_expr(cc, cond);
+    let elseif_jump = len(c1.code);
+    let c2 = emit(c1, OpJumpIfFalse(0), loc);
+    let c3 = compile_each_stmt(c2, body);
+    let elseif_end = len(c3.code);
+    cc = set_code_at(c3, elseif_jump, OpJumpIfFalse(elseif_end - elseif_jump - 1));
+    i = i + 1;
+  }
+  cc
+}
+
+// ============================================
+// Declaration compilation
+// ============================================
+
+fn compile_decl(c: Compiler, decl: Decl) -> Compiler {
+  match decl {
+    FunctionDecl(_name, _params, _ret, body, loc) => {
+      // Functions not fully implemented — checkpoint then inline the body.
+      let c1 = emit(c, OpCheckpoint("function"), loc);
+      compile_each_stmt(c1, body)
+    },
+
+    StructDecl(_name, _fields, loc) => {
+      // Structs not implemented — emit a checkpoint.
+      emit(c, OpCheckpoint("struct"), loc)
+    },
+
+    MainBlock(body, loc) => {
+      let c1 = emit(c, OpCheckpoint("main_start"), loc);
+      let c2 = compile_each_stmt(c1, body);
+      emit(c2, OpCheckpoint("main_end"), loc)
+    },
+
+    StmtDecl(stmt) => compile_stmt(c, stmt)
+  }
+}
+
+// ============================================
+// Program compilation
+// ============================================
+
+pub fn compile(program: Program) -> Result<BytecodeProgram, String> {
+  let c0 = make();
+
+  // Compile all declarations.
+  let n = len(program.declarations);
+  let mut i = 0;
+  let mut c = c0;
+  while i < n {
+    c = compile_decl(c, program.declarations[i]);
+    i = i + 1;
+  }
+
+  // Emit halt.
+  let c_final = emit(c, OpHalt, program.loc);
+
+  // Build the chunk and program.
+  let chunk = #{ code: c_final.code, constants: c_final.constants,
+                 locations: c_final.locations };
+  let bytecode_program = #{ main: chunk, functions: [] };
+  Ok(bytecode_program)
+}
