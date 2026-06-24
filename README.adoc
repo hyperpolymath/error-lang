@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: CC-BY-SA-4.0
 // Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 = Error-Lang: Systems Thinking Education Through Computational Haptics
 image:https://img.shields.io/badge/OpenSSF-Best_Practices-green?logo=openssourcesecurity[OpenSSF Best Practices,link="https://www.bestpractices.dev/en/projects/new?repo_url=https://github.com/hyperpolymath/error-lang"]
@@ -420,7 +420,7 @@ See link:CONTRIBUTING.adoc[CONTRIBUTING.adoc] for development guidelines.
 
 == License
 
-SPDX-License-Identifier: MPL-2.0
+SPDX-License-Identifier: CC-BY-SA-4.0
 
 Error-Lang is free software under the https://github.com/hyperpolymath/palimpsest-license[MPL-2.0] (MPL-2.0).
 
