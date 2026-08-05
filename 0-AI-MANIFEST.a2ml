@@ -135,3 +135,20 @@ runnable implementation is in cli/. Resolution: AffineScript re-target
 1. Update `.machine_readable/6a2/STATE.a2ml` with session outcomes
 2. Ensure all new files have SPDX-License-Identifier: MPL-2.0 headers
 3. Ensure Echo decomposition invariants are intact (run contractiles/must/Mustfile checks)
+
+<!-- BEGIN requires-initialisation -->
+
+## PRIORITY ACTION — this repository is not fully initialised
+
+4 substitution token(s) still have no value. **Read
+`REQUIRES_INITIALISATION.md` in the repository root before doing anything
+else here** — it lists every outstanding token, what it means, and which
+files it belongs in.
+
+Do not fabricate values for them, and do not delete the sections that
+contain them to quiet a gate. They are unfilled because they need a
+decision, not because they were overlooked. Resolve what you legitimately
+can, leave the rest, and delete `REQUIRES_INITIALISATION.md` only when
+nothing outstanding remains.
+
+<!-- END requires-initialisation -->

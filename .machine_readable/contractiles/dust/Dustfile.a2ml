@@ -54,7 +54,7 @@ to new repositories.
 - description: No references to error-lang in generic template files
 - run: test -z "$(grep -r 'error-lang' machine-readable-design/ 2>/dev/null)"
 - severity: warning
-- notes: Generic templates should use {{PROJECT_NAME}} or similar placeholders
+- notes: Generic templates should use Status: Production-Ready (100%) or similar placeholders
 
 ### version-sync-checked
 - description: Version in canonical-directory-structure matches .machine_readable/contractiles
