@@ -65,7 +65,7 @@ Error-Lang has been driven from 45% completion (compiler only) to 100% productio
 | **Completion** | 45% | 100% | +55% |
 | **LOC** | 7,468 | 9,200 | +23% |
 | **Files** | 27 | 38 | +41% |
-| **ReScript Files** | 18 | 21 | +3 |
+| **AffineScript Files** | 18 | 21 | +3 |
 | **Phase** | compiler-only | production-ready | ✓ |
 
 ## Unique Features

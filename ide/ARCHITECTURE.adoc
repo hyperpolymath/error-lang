@@ -8,11 +8,11 @@
 
 Error-Lang Studio is a web-based IDE that makes computational forces visible and navigable. It's not just a code editor - it's an **archaeology toolkit** for exploring how code transforms through abstraction layers.
 
-NOTE: *Migrated to AffineScript.* The IDE was ported from ReScript to
+NOTE: *Migrated to AffineScript.* The IDE was ported from AffineScript to
 AffineScript (`.res` -> `.affine`) per the Hyperpolymath language policy. The
 app compiles via `affinescript compile --deno-esm` to a self-contained
 `src/Main.js` bundle, driven by the host shim `src/host.js`. The TEA structure
-below is unchanged; the inline code samples still show ReScript syntax and are
+below is unchanged; the inline code samples still show AffineScript syntax and are
 retained as conceptual illustrations pending a syntax refresh.
 
 == Architecture: The Elm Architecture (TEA) in AffineScript
@@ -25,7 +25,7 @@ We use TEA because it's:
 
 === Core Pattern
 
-```rescript
+```affinescript
 // The TEA pattern
 type model = { /* application state */ }
 type msg = Update | Click | ... /* events */
@@ -37,7 +37,7 @@ let view = (model) => Html.div(...)
 
 == Model: Application State
 
-```rescript
+```affinescript
 // ide/src/Model.res
 
 type model = {
@@ -94,7 +94,7 @@ type theme = Light | Dark | HighContrast
 
 == Messages: Events
 
-```rescript
+```affinescript
 // ide/src/Msg.res
 
 type msg =
@@ -143,7 +143,7 @@ type msg =
 
 == Update: State Transitions
 
-```rescript
+```affinescript
 // ide/src/Update.res
 
 let update = (msg: msg, model: model): (model, Cmd.msg) => {
@@ -219,7 +219,7 @@ let update = (msg: msg, model: model): (model, Cmd.msg) => {
 
 == View: UI Components
 
-```rescript
+```affinescript
 // ide/src/View.res
 
 let view = (model: model): Html.html<msg> => {
@@ -407,14 +407,14 @@ let viewBottomPanel = (model: model): Html.html<msg> => {
 == Technology Stack
 
 === Frontend
-- **ReScript**: Type-safe, compiles to clean JS
-- **ReScript-TEA**: The Elm Architecture
+- **AffineScript**: Type-safe, compiles to clean JS
+- **AffineScript-TEA**: The Elm Architecture
 - **Monaco Editor**: VS Code's editor component
 - **SVG/Canvas**: For visualizations (ripples, cascades)
 
 === Build
 - **Vite**: Fast dev server and build
-- **ReScript compiler**: .res → .js
+- **AffineScript compiler**: .res → .js
 - **PostCSS**: CSS processing
 
 === Development
@@ -446,9 +446,9 @@ error-lang/
 │   ├── public/
 │   ├── index.html
 │   ├── vite.config.js
-│   └── rescript.json
+│   └── affinescript.json
 │
-├── compiler/                    # ReScript compiler modules
+├── compiler/                    # AffineScript compiler modules
 │   └── src/
 │       ├── Types.res
 │       ├── Parser.res
@@ -466,7 +466,7 @@ error-lang/
 == Implementation Phases
 
 === Phase 1: Foundation (Week 1-2)
-- [ ] Set up ReScript-TEA project
+- [ ] Set up AffineScript-TEA project
 - [ ] Basic editor with Monaco
 - [ ] Simple compile on change
 - [ ] Display AST

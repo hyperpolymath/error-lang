@@ -38,7 +38,7 @@ This roadmap tracks Error-Lang development from alpha (current) to production-re
 **Goal:** Functional IDE with layer navigation and stability dashboard
 
 **Status:**
-- [x] ReScript-TEA architecture designed
+- [x] AffineScript-TEA architecture designed
 - [x] Model/Msg/Update/View implemented
 - [x] Build configuration (Deno + Vite)
 - [x] Styling (dark theme, computational haptics)
@@ -92,7 +92,7 @@ This roadmap tracks Error-Lang development from alpha (current) to production-re
 - [ ] `proven/src/Scope.idr` - Scope leakage rules with proofs
 - [ ] `proven/src/TypeCollapse.idr` - Type collapse correctness
 - [ ] FFI bindings (Idris2 → JavaScript)
-- [ ] Integration with ReScript compiler
+- [ ] Integration with AffineScript compiler
 
 **Proofs Required:**
 1. Stability score always in [0, 100]
@@ -267,7 +267,7 @@ This roadmap tracks Error-Lang development from alpha (current) to production-re
 
 === External Dependencies
 
-- **ReScript compiler** - Must stay compatible with latest version
+- **AffineScript compiler** - Must stay compatible with latest version
 - **Deno runtime** - Stable API required
 - **Vite** - Build tool updates
 - **GitHub Actions** - CI/CD infrastructure
@@ -278,14 +278,14 @@ This roadmap tracks Error-Lang development from alpha (current) to production-re
 - **proven** - Idris2 formal verification library
 - **cadre-tea-router** - Routing (must be stable)
 - **draig-ssg** - Static site generation
-- **rescript-tea** - UI framework
+- **affinescript-tea** - UI framework
 - **a2ml** - Aspect modeling language
 
 == Risks and Mitigation
 
 === Risk 1: IDE Build Complexity
 
-**Risk:** ReScript + Deno + Vite integration may have issues
+**Risk:** AffineScript + Deno + Vite integration may have issues
 
 **Mitigation:**
 - Test build early (Phase 2)
@@ -361,7 +361,7 @@ This roadmap tracks Error-Lang development from alpha (current) to production-re
 **Tasks:**
 1. Test IDE build process
    - [ ] `cd ide && deno task dev`
-   - [ ] Fix any Deno/Vite/ReScript integration issues
+   - [ ] Fix any Deno/Vite/AffineScript integration issues
    - [ ] Document build process
 
 2. Fix state persistence

@@ -29,7 +29,7 @@ formally verified (2026-02-07)
 
 | Component | Status | Description |
 |----|----|----|
-| **Compiler & Runtime** | ✅ 100% | ReScript compiler with lexer, parser, type checker, analyzer (7,468 LOC base) |
+| **Compiler & Runtime** | ✅ 100% | AffineScript compiler with lexer, parser, type checker, analyzer (7,468 LOC base) |
 | **Bytecode VM** | ✅ 100% | Stack-based interpreter with positional semantics and computational haptics (520 LOC) |
 | **Codegen** | ✅ 100% | AST to bytecode compiler with position metadata preservation (425 LOC) |
 | **Zig FFI** | ✅ 100% | High-performance computational haptics (stability scoring, paradox detection, 450 LOC) |
@@ -382,7 +382,7 @@ Studying learning through mistakes
 |----|----|
 | Lines of Code | 9,200+ |
 | Files | 38 |
-| Languages | ReScript (21 files), Idris2 (6 files), Zig (3 files), TypeScript (1 file) |
+| Languages | AffineScript (21 files), Idris2 (6 files), Zig (3 files), TypeScript (1 file) |
 | Completion | 100% |
 | Test Coverage | Core components tested (14 Zig FFI tests passing) |
 | Documentation | Complete (spec + 10 tutorials + API docs) |

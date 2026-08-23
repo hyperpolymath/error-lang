@@ -4,7 +4,7 @@
 :toc:
 
 Patches against a fresh `hyperpolymath/affinescript` checkout, produced during
-the ReScript -> AffineScript migration when `affinescript` was outside the
+the AffineScript -> AffineScript migration when `affinescript` was outside the
 session's repo scope (so they could not be pushed upstream directly).
 
 * `affinescript-module-struct-fields.patch` is *applied automatically* by

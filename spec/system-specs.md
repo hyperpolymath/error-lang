@@ -8,7 +8,7 @@ Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 # Error-Lang System Specifications
 
 Error-Lang is a pedagogical programming language where errors are features.
-Implementation stack: ReScript compiler (compiles to JavaScript), Zig FFI for
+Implementation stack: AffineScript compiler (compiles to JavaScript), Zig FFI for
 computational haptics feedback. Designed for learning through deliberate failure.
 
 ---
@@ -20,10 +20,10 @@ purpose, with a specialised FFI layer for haptics.
 
 ### JavaScript Runtime (Primary)
 
-- ReScript compiles to JavaScript; all Error-Lang values are JS heap objects
+- AffineScript compiles to JavaScript; all Error-Lang values are JS heap objects
   managed by the JavaScript engine's garbage collector.
 - No manual memory management is exposed to Error-Lang users.
-- Values are immutable by default (ReScript's functional core).
+- Values are immutable by default (AffineScript's functional core).
 - Mutable state is limited to the interpreter's internal bookkeeping.
 
 ### Interpreter State
@@ -154,7 +154,7 @@ Error-Lang has no explicit module system.
 
 ### Compiler Organisation (Internal)
 
-- The ReScript compiler is a single package (not split into sub-packages).
+- The AffineScript compiler is a single package (not split into sub-packages).
 - Source files: `Lexer.res`, `Parser.res`, `Interpreter.res`, `Stability.res`,
   `HapticsBridge.res`.
 - The Zig FFI is a single `haptics.zig` file compiled to a shared library.

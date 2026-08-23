@@ -256,7 +256,7 @@ differ across runs (different seeds), mirroring real physics experiments.
 
 ### 4.2 Implementation
 
-The type checker is implemented in ReScript (`compiler/src/TypeSuperposition.res`)
+The type checker is implemented in AffineScript (`compiler/src/TypeSuperposition.res`)
 using algebraic data types for quantum states. The seed is derived from the
 variable's declaration location and the run counter, ensuring reproducibility.
 
@@ -301,7 +301,7 @@ The system provides:
 ### 5.2 Implementation
 
 The haptics system is implemented in Zig (`ffi/zig/`) for performance, with
-ReScript bindings for the compiler and LSP server. The Zig FFI computes
+AffineScript bindings for the compiler and LSP server. The Zig FFI computes
 stability scores in real-time, including algorithm complexity estimation via
 instruction counting.
 
@@ -362,16 +362,16 @@ following the hyperpolymath Idris2 ABI / Zig FFI standard.
 
 | Component | Language | LOC | Purpose |
 |-----------|----------|-----|---------|
-| Lexer | ReScript | 605 | Tokenisation with position tracking |
-| Parser | ReScript | 952 | CST and AST construction |
-| Type Superposition | ReScript | 601 | Quantum type inference engine |
-| Stability Tracker | ReScript | 315 | Real-time consequence scoring |
-| Analyser | ReScript | 317 | Paradox detection |
-| Five Whys Engine | ReScript | 387 | Root cause analysis |
-| Layer Navigator | ReScript | 370 | Cross-layer debugging |
-| Bytecode VM | ReScript | 520 | Stack-based interpreter |
-| Codegen | ReScript | 425 | AST → bytecode compilation |
-| LSP Server | ReScript | 310 | IDE integration |
+| Lexer | AffineScript | 605 | Tokenisation with position tracking |
+| Parser | AffineScript | 952 | CST and AST construction |
+| Type Superposition | AffineScript | 601 | Quantum type inference engine |
+| Stability Tracker | AffineScript | 315 | Real-time consequence scoring |
+| Analyser | AffineScript | 317 | Paradox detection |
+| Five Whys Engine | AffineScript | 387 | Root cause analysis |
+| Layer Navigator | AffineScript | 370 | Cross-layer debugging |
+| Bytecode VM | AffineScript | 520 | Stack-based interpreter |
+| Codegen | AffineScript | 425 | AST → bytecode compilation |
+| LSP Server | AffineScript | 310 | IDE integration |
 | Computational Haptics | Zig | 450 | Real-time feedback engine |
 | Formal Proofs | Idris2 | ~300 | Pedagogical invariants |
 

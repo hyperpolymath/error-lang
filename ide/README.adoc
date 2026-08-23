@@ -21,8 +21,8 @@ Error-Lang Studio is an interactive IDE for exploring the Error-Lang pedagogical
 
 Built with:
 
-* **ReScript** - Type-safe functional language compiling to JavaScript
-* **ReScript-TEA** - The Elm Architecture for reactive UI
+* **AffineScript** - Type-safe functional language compiling to JavaScript
+* **AffineScript-TEA** - The Elm Architecture for reactive UI
 * **cadre-tea-router** - Client-side routing
 * **draig-ssg** - Static site generation
 * **proven (Idris2)** - Formally verified core algorithms

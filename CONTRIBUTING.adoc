@@ -17,7 +17,7 @@ Thank you for your interest in contributing to Error-Lang!
 
 This project follows the https://github.com/hyperpolymath/rhodium-standard-repositories[RSR] language policy:
 
-* **ReScript** for compiler code
+* **AffineScript** for compiler code
 * **Deno** for CLI (JavaScript, no TypeScript)
 * **AsciiDoc** for documentation
 * **No TypeScript, Node.js, npm, or Go**
@@ -35,7 +35,7 @@ To add a new error code:
 == Code Style
 
 * Use `deno fmt` for JavaScript
-* Use `rescript format` for ReScript
+* Use `affinescript format` for AffineScript
 * SPDX license headers on all files
 * Descriptive variable names
 

@@ -322,7 +322,7 @@ BOOL        = "true" | "false" ;
 
 === Toolchain
 
-* **Compiler**: ReScript (compiles to JS)
+* **Compiler**: AffineScript (compiles to JS)
 * **CLI**: Deno (JavaScript runtime)
 * **Docs**: AsciiDoc
 

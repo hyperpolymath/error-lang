@@ -288,7 +288,7 @@ Students can **trigger network partitions** and see consequences immediately!
 
 Data structures that reveal their performance characteristics **dramatically**:
 
-```rescript
+```affinescript
 // Array vs Linked List for random access
 
 let array = [1, 2, 3, ..., 1000000]
@@ -311,7 +311,7 @@ let y = list.get(500000)
 ==== 1. Algorithm Complexity Cliffs
 
 **Bubble Sort vs Quick Sort:**
-```rescript
+```affinescript
 let data = [1..10000]  // 10K elements
 
 // Bubble sort
@@ -351,7 +351,7 @@ Recommendation: Use O(n log n) sorting algorithm
 ==== 2. Memory Fragmentation
 
 **Repeated allocations:**
-```rescript
+```affinescript
 // Naive string concatenation
 let mut result = ""
 for i in 1..10000
@@ -365,7 +365,7 @@ end
 ```
 
 **Optimized version:**
-```rescript
+```affinescript
 let builder = StringBuilder.new()
 for i in 1..10000
     builder.append("x")  // ✓ Amortized O(1), no fragmentation
@@ -381,7 +381,7 @@ let result = builder.to_string()
 ==== 3. Cache Locality Effects
 
 **Array of Structs vs Struct of Arrays:**
-```rescript
+```affinescript
 // AoS (Array of Structs) - poor cache locality
 type Particle = { x: float, y: float, z: float, mass: float }
 let particles_aos = Array.init(1000000, i =>
@@ -471,7 +471,7 @@ Students see the **same principles** across domains!
 ```
 ┌────────────────────────────────────────────┐
 │  Error Ecosystem Studio                    │
-│  (Unified IDE - ReScript + TEA)            │
+│  (Unified IDE - AffineScript + TEA)            │
 ├────────────────────────────────────────────┤
 │                                             │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐ │

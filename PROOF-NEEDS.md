@@ -87,8 +87,8 @@ They are now deleted and replaced by the genuine, machine-checked modules above.
    here. Prove that path too.
 4. **Programs not executed in this environment.** Under the current network
    policy the Deno runtime's JSR std deps (`jsr.io`) and Zig 0.13.0
-   (`ziglang.org`) are unreachable, and the ReScript compiler does not currently
-   build (`return` is not valid ReScript — `VM.res:407`; `dict<string, int>`
+   (`ziglang.org`) are unreachable, and the AffineScript compiler does not currently
+   build (`return` is not valid AffineScript — `VM.res:407`; `dict<string, int>`
    applies the one-argument `dict` constructor to two arguments —
    `Types.res:233`). These were **not** run or fixed as part of this change and
    are tracked as separate work — they are not claimed to pass.

@@ -19,14 +19,14 @@ Copyright (c) Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 **Project Status:** 45% complete (Alpha - Foundation Complete)
 **Language:** Pedagogical language with intentional fragility and paradoxes
 **Tech Stack:**
-- Compiler: ReScript
+- Compiler: AffineScript
 - Runtime: Deno (JavaScript)
 - Verification: Idris2 (planned)
 
 ### What Error-Lang Has
 
 **Core Language Features:**
-- ✅ Lexer, Parser, AST (ReScript compiler)
+- ✅ Lexer, Parser, AST (AffineScript compiler)
 - ✅ Runtime interpreter (Deno/JS)
 - ✅ Stability tracking system (computational haptics)
 - ✅ 7/10 paradoxes implemented
