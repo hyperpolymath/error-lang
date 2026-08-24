@@ -1,0 +1,53 @@
+SPDX-License-Identifier: CC-BY-SA-4.0 SPDX-FileCopyrightText: 2026
+Jonathan D.A. Jewell (hyperpolymath) –>
+
+== Changelog
+
+All notable changes to `+error-lang+` will be documented in this file.
+
+This file is generated from conventional commits by the
+https://github.com/hyperpolymath/standards/blob/main/.github/workflows/changelog-reusable.yml[`+changelog-reusable.yml+`]
+workflow (`+hyperpolymath/standards#206+`). Adopt the workflow in this
+repo’s CI to keep this file in sync automatically — see
+https://github.com/hyperpolymath/standards/blob/main/templates/cliff.toml[`+templates/cliff.toml+`]
+for the canonical config.
+
+The format follows https://keepachangelog.com/en/1.1.0/[Keep a
+Changelog]; this project aims to follow
+https://semver.org/spec/v2.0.0.html[Semantic Versioning].
+
+=== [Unreleased]
+
+==== Added
+
+* feat: initial commit — Error-Lang paradox-embracing error handling
+language
+
+==== Fixed
+
+* fix(ci): sync hypatia-scan.yml to canonical (kill cd-scanner build
+drift) (#3)
+* fix(ci): adopt canonical hypatia-scan.yml (env.HOME/scanner-layout +
+Comment-step gate) (#2)
+* fix(ci): adopt canonical hypatia-scan.yml (env.HOME/scanner-layout +
+Comment-step gate) (#1)
+* fix(ci): update hypatia binary detection in hypatia-scan workflow
+* fix(perms): restore exec bit on conformance runner scripts
+* fix(security): remove eval from conformance runner
+* fix: replace deno –allow-all with specific permission flags in LSP
+server
+
+==== CI
+
+* ci: fix workflow-linter YAML parse error + self-flag bug
+* ci: wire hypatia-scan.yml to query own Dependabot alerts
+
+=== Pre-history
+
+Prior commits to this file’s introduction are recorded in git history
+but not formally classified into Keep-a-Changelog sections. To backfill,
+run `+git cliff -o CHANGELOG.md+` locally using the canonical
+https://github.com/hyperpolymath/standards/blob/main/templates/cliff.toml[`+cliff.toml+`]
+— this is one-shot mechanical work.
+
+'''''
