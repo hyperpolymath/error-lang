@@ -239,14 +239,14 @@ Output + Stability Score + Haptics
 | `.machine_readable/6a2/` | Machine-readable manifests (STATE, META, AGENTIC, etc.)
 |===
 
-NOTE: `compiler/src/*.res` is a *reference frontend* written in a non-standard ReScript
-dialect. The runnable implementation is `cli/`. The ReScript tree does not build against
-mainstream ReScript — this is a pre-existing intentional choice pending AffineScript
+NOTE: `compiler/src/*.res` is a *reference frontend* written in a non-standard AffineScript
+dialect. The runnable implementation is `cli/`. The AffineScript tree does not build against
+mainstream AffineScript — this is a pre-existing intentional choice pending AffineScript
 re-target. Do not attempt to fix it by removing `.res` files.
 
 === The Compiler note (important for contributors)
 
-The `compiler/` directory uses an early, non-standard ReScript dialect:
+The `compiler/` directory uses an early, non-standard AffineScript dialect:
 `return`/`break` statements, `dict<K,V>` with non-string keys, and element-returning
 `arr[i]`. This dialect predates any standard toolchain. A formal
 *AffineScript re-target* (ADR-pending) will migrate the reference frontend to standard
@@ -279,7 +279,7 @@ tooling. Until then, follow each file's established idioms when extending the co
 
 * **AffineScript re-target** — migrate `compiler/src/*.res` to a standard, buildable
   dialect. This resolves the `governance / Language / package anti-pattern policy` CI
-  failure (ReScript ban) that currently hits every PR from `main`.
+  failure (AffineScript ban) that currently hits every PR from `main`.
 
 === Medium-term
 

@@ -46,7 +46,7 @@ passing = [
   "Hypatia Neurosymbolic Analysis",
   "CodeQL Analysis (javascript-typescript)",
   "governance / Licence consistency",
-  "governance / Guix primary / Nix fallback policy",
+  "governance / Guix primary / Guix fallback policy",
   "governance / Well-Known (RFC 9116 + RSR)",
   "governance / Workflow security linter",
   "governance / Trusted-base reduction policy",
@@ -58,7 +58,7 @@ failing = [
   "governance / Language / package anti-pattern policy",
 ]
 failing-reason = """
-The anti-pattern policy bans ReScript (.res files) estate-wide. This failure
+The anti-pattern policy bans AffineScript (.res files) estate-wide. This failure
 is PRE-EXISTING on main — it fails identically there. It is NOT caused by
 Echo types or any recent work. Resolution: AffineScript re-target (INTENT-001,
 ADR-pending). Do NOT attempt to fix by removing .res files.
@@ -66,7 +66,7 @@ ADR-pending). Do NOT attempt to fix by removing .res files.
 
 [blockers-and-issues]
 issues = [
-  "governance / Language / package anti-pattern policy — permanent pre-existing failure (ReScript ban); resolves only with AffineScript re-target",
+  "governance / Language / package anti-pattern policy — permanent pre-existing failure (AffineScript ban); resolves only with AffineScript re-target",
 ]
 
 [critical-next-actions]
@@ -79,4 +79,4 @@ actions = [
 [maintenance-status]
 last-run-utc = "2026-06-02T00:00:00Z"
 last-result = "pass"   # unknown | pass | warn | fail
-notes = "All checks pass except the pre-existing governance ReScript ban."
+notes = "All checks pass except the pre-existing governance AffineScript ban."

@@ -10,11 +10,11 @@ Error-Lang Studio integrates with existing hyperpolymath infrastructure:
 
 ```
 ┌─────────────────────────────────────────────┐
-│         Error-Lang Studio (ReScript-TEA)     │
+│         Error-Lang Studio (AffineScript-TEA)     │
 ├─────────────────────────────────────────────┤
 │                                              │
 │  Built with:                                 │
-│  ├─ ReScript-TEA (reactive architecture)    │
+│  ├─ AffineScript-TEA (reactive architecture)    │
 │  ├─ cadre-tea-router (routing)              │
 │  ├─ draig-ssg (static site generation)      │
 │  └─ proven (formally verified core)         │
@@ -23,7 +23,7 @@ Error-Lang Studio integrates with existing hyperpolymath infrastructure:
 ```
 
 This gives us:
-- ✅ Reactive architecture (ReScript-TEA)
+- ✅ Reactive architecture (AffineScript-TEA)
 - ✅ Client-side routing (cadre-tea-router)
 - ✅ Static deployment (draig-ssg)
 - ✅ Formal verification (proven/Idris2)
@@ -35,7 +35,7 @@ Client-side routing for multi-panel IDE without page reloads.
 
 === Routes
 
-```rescript
+```affinescript
 // Routes.res
 
 type route =
@@ -90,8 +90,8 @@ Build Error-Lang Studio as a **static site** - deployable to GitHub Pages, no se
 === Architecture
 
 ```
-Source (ReScript-TEA app)
-  ↓ compile with ReScript
+Source (AffineScript-TEA app)
+  ↓ compile with AffineScript
 JavaScript bundle
   ↓ build with Vite
 Static assets (HTML, JS, CSS)
@@ -213,9 +213,9 @@ collapseCorrectness :
   elem (collapseType qt ctx seed) (getPossibilities qt) = True
 ```
 
-=== Idris2 ↔ ReScript FFI
+=== Idris2 ↔ AffineScript FFI
 
-```rescript
+```affinescript
 // compiler/src/bindings/Proven.res
 
 // Bind to Idris2-compiled functions
@@ -331,7 +331,7 @@ aspect TemporalScopeLeakage {
                         ↓
         ┌───────────────┼───────────────┐
         ↓               ↓               ↓
-   ReScript-TEA   cadre-tea-router  draig-ssg
+   AffineScript-TEA   cadre-tea-router  draig-ssg
         ↓               ↓               ↓
     Reactive UI      Routing      Static Build
         ↓
@@ -362,14 +362,14 @@ draig deploy gh-pages
 
 | Technology | Purpose | Why |
 |------------|---------|-----|
-| **ReScript-TEA** | UI framework | Type-safe, reactive, predictable |
+| **AffineScript-TEA** | UI framework | Type-safe, reactive, predictable |
 | **cadre-tea-router** | Routing | Client-side, deep-linkable |
 | **draig-ssg** | Build | Static, fast, no server |
 | **proven (Idris2)** | Core logic | Formally verified, guaranteed correct |
 | **a2ml** | Aspects | Declarative paradoxes, modular |
 
 This creates:
-- **Type-safe** frontend (ReScript)
+- **Type-safe** frontend (AffineScript)
 - **Formally verified** backend (Idris2)
 - **Declarative** aspects (a2ml)
 - **Static** deployment (draig-ssg)

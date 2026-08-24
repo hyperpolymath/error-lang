@@ -21,7 +21,7 @@ help:
     @echo "  test          Run tests"
     @echo "  lint          Lint code"
     @echo "  fmt           Format code"
-    @echo "  build         Build ReScript compiler"
+    @echo "  build         Build AffineScript compiler"
     @echo "  clean         Clean build artifacts"
 
 # Run an Error-Lang program
@@ -43,20 +43,20 @@ test:
 # Lint code
 lint:
     deno lint
-    @if command -v rescript &> /dev/null; then \
-        cd compiler && npx rescript build; \
+    @if command -v affinescript &> /dev/null; then \
+        cd compiler && npx affinescript build; \
     fi
 
 # Format code
 fmt:
     deno fmt
 
-# Build ReScript compiler
+# Build AffineScript compiler
 build:
-    @if [ -d "compiler" ] && [ -f "compiler/rescript.json" ]; then \
-        cd compiler && npx rescript build; \
+    @if [ -d "compiler" ] && [ -f "compiler/affinescript.json" ]; then \
+        cd compiler && npx affinescript build; \
     else \
-        echo "ReScript compiler not yet configured"; \
+        echo "AffineScript compiler not yet configured"; \
     fi
 
 # Clean build artifacts

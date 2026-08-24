@@ -46,7 +46,7 @@ debit is never hidden. See docs/Echo-Decomposition.adoc and spec/type-system.md 
 
 governance / Language / package anti-pattern policy FAILS on every PR and on
 main because compiler/src/*.res files exist. This is intentional/legacy — the
-compiler is a reference frontend in a non-standard early ReScript dialect. The
+compiler is a reference frontend in a non-standard early AffineScript dialect. The
 runnable implementation is in cli/. Resolution: AffineScript re-target
 (contractiles/lust/Intentfile INTENT-001). Do NOT work around it by removing
 .res files or patching governance.yml.
@@ -90,7 +90,7 @@ runnable implementation is in cli/. Resolution: AffineScript re-target
 - `verification/benchmarks/`  — Performance benchmarks (symlink → ../bench)
 - `verification/fuzzing/`     — Fuzz targets (symlink → ../compiler/fuzz)
 
-### Compiler (reference frontend — non-standard ReScript dialect)
+### Compiler (reference frontend — non-standard AffineScript dialect)
 - `compiler/src/Types.res`        — Token + type AST (TyEcho, TyEchoResidue)
 - `compiler/src/Lexer.res`        — Tokenizer (Echo, EchoR keywords)
 - `compiler/src/Parser.res`       — AST builder (type expression parser)

@@ -21,7 +21,7 @@ This session took Error-Lang from concept to working implementation with a compl
    - Five Whys root cause analysis
    - Working paradox detection
 
-3. **IDE Architecture** - Full ReScript-TEA implementation:
+3. **IDE Architecture** - Full AffineScript-TEA implementation:
    - Model/Msg/Update/View (complete TEA pattern)
    - 3-panel layout (layers, editor, dashboard)
    - Computational haptics visualizations
@@ -54,7 +54,7 @@ This session took Error-Lang from concept to working implementation with a compl
 
 **Implemented But Untested:**
 - 🔄 IDE architecture (files created, build not tested yet)
-- 🔄 ReScript-TEA application (needs `deno task dev` to test)
+- 🔄 AffineScript-TEA application (needs `deno task dev` to test)
 - 🔄 Vite build configuration
 
 **Needs Implementation:**
@@ -76,14 +76,14 @@ deno task dev
 Expected: Vite dev server starts on http://localhost:3000
 
 Possible issues:
-- ReScript compiler errors (check `rescript build` output)
+- AffineScript compiler errors (check `affinescript build` output)
 - Missing dependencies (run `deno cache` commands)
 - Import path issues (check `deno.json` imports)
 
 2. **If build fails, check:**
 ```bash
-# Check ReScript compilation
-cd compiler && rescript build
+# Check AffineScript compilation
+cd compiler && affinescript build
 
 # Check for any .res syntax errors
 ls -la ide/src/*.res
@@ -131,7 +131,7 @@ cli/layer-navigator.js      - 5-layer exploration
 cli/five-whys.js            - Root cause analysis
 ```
 
-**Compiler (ReScript):**
+**Compiler (AffineScript):**
 ```
 compiler/src/Types.res             - Type definitions
 compiler/src/Stability.res         - Core stability logic
@@ -140,7 +140,7 @@ compiler/src/LayerNavigator.res    - Layer transformation
 compiler/src/FiveWhys.res          - Causality tracing
 ```
 
-**IDE (ReScript-TEA):**
+**IDE (AffineScript-TEA):**
 ```
 ide/src/Model.res    - Application state
 ide/src/Msg.res      - Event messages
@@ -216,18 +216,18 @@ deno run -A cli/runtime.js examples/04-scope-leakage.err  # Run #3 (prime!)
 
 === Issue 2: IDE Build Not Tested
 
-**Problem:** ReScript-TEA IDE files created but not tested
+**Problem:** AffineScript-TEA IDE files created but not tested
 
 **Status:** Architecture complete, build process unknown
 
 **How to fix:**
 1. `cd ide && deno task dev`
-2. Fix any ReScript compilation errors
+2. Fix any AffineScript compilation errors
 3. Fix any Vite/Deno integration issues
 4. Fix any import path issues
 
 **Possible errors:**
-- ReScript: `Syntax error in Model.res` → check Tea.Html API usage
+- AffineScript: `Syntax error in Model.res` → check Tea.Html API usage
 - Vite: `Cannot resolve module` → check `deno.json` imports
 - Deno: `Permission denied` → add `-A` flag or specific permissions
 
@@ -250,7 +250,7 @@ deno run -A cli/runtime.js examples/04-scope-leakage.err  # Run #3 (prime!)
 **Status:** Placeholder messages, not real compilation
 
 **How to fix:**
-1. Compile ReScript compiler to JavaScript
+1. Compile AffineScript compiler to JavaScript
 2. Import in IDE as module
 3. Wire up `CompileCode` message to actual compiler
 4. Display real AST in layer navigator
@@ -260,7 +260,7 @@ deno run -A cli/runtime.js examples/04-scope-leakage.err  # Run #3 (prime!)
 === Architecture Decisions (DO NOT CHANGE)
 
 1. **Deno, not Node/npm** - All JavaScript uses Deno runtime
-2. **ReScript, not TypeScript** - Type safety without TS complexity
+2. **AffineScript, not TypeScript** - Type safety without TS complexity
 3. **TEA pattern** - Model/Update/View architecture is fundamental
 4. **Static site** - No backend server, all client-side
 5. **Pedagogical fragility** - Language itself is fragile, not runtime errors
@@ -268,7 +268,7 @@ deno run -A cli/runtime.js examples/04-scope-leakage.err  # Run #3 (prime!)
 
 === File Naming Conventions
 
-- `.res` files - ReScript source (compiles to `.res.js`)
+- `.res` files - AffineScript source (compiles to `.res.js`)
 - `.err` files - Error-Lang programs
 - `.scm` files - Guile Scheme metadata
 - `.adoc` files - AsciiDoc documentation
@@ -294,7 +294,7 @@ deno run -A cli/runtime.js examples/04-scope-leakage.err  # Run #3 (prime!)
 === Integration Points
 
 **Error-Lang depends on:**
-- rescript-tea (UI framework)
+- affinescript-tea (UI framework)
 - cadre-tea-router (routing)
 - draig-ssg (static build)
 - proven (Idris2 verification)
@@ -337,7 +337,7 @@ deno run -A cli/runtime.js examples/04-scope-leakage.err  # Run #3 (prime!)
 #4. [completed] Layer navigator
 #5. [completed] Five Whys analyzer
 #6. [completed] Scope leakage infrastructure
-#7. [completed] ReScript-TEA IDE architecture
+#7. [completed] AffineScript-TEA IDE architecture
 ```
 
 == How to Restart Development
@@ -396,8 +396,8 @@ cat CONTINUATION-GUIDE.adoc
 # Run Error-Lang programs
 deno run -A cli/runtime.js <file.err>
 
-# Build ReScript compiler
-cd compiler && rescript build
+# Build AffineScript compiler
+cd compiler && affinescript build
 
 # Build IDE (development)
 cd ide && deno task dev

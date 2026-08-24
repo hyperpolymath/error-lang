@@ -271,7 +271,7 @@ mystery(-1) = ?  # → ??? (infinite loop? error?)
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Error-Lang Studio (ReScript + TEA)             │
+│  Error-Lang Studio (AffineScript + TEA)             │
 ├─────────────────────────────────────────────────┤
 │                                                  │
 │  ┌─────────────┐  ┌──────────────┐             │
@@ -306,9 +306,9 @@ mystery(-1) = ?  # → ??? (infinite loop? error?)
 └─────────────────────────────────────────────────┘
 ```
 
-=== ReScript-TEA Architecture
+=== AffineScript-TEA Architecture
 
-```rescript
+```affinescript
 // Main.res - The Elm Architecture
 
 type model = {

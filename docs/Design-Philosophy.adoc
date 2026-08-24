@@ -192,7 +192,7 @@ You can build:
 
 **The difference:** You'll understand WHY your code works, not just THAT it works.
 
-== The ReScript IDE: Archaeology Tools
+== The AffineScript IDE: Archaeology Tools
 
 The tooling makes invisible things visible:
 

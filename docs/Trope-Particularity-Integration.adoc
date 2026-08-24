@@ -216,7 +216,7 @@ used in `src/abi/`.
 |===
 | Phase | Work
 
-| *0 (now)* | Shape the AffineScript Echo types (during the ReScript→AffineScript port) so `Echo`/`EchoR`/`echo_to_residue` lower cleanly to `Trope`/`FloatingQuality`/`detach`. This document + cross-references. *No new runtime coupling.*
+| *0 (now)* | Shape the AffineScript Echo types (during the AffineScript→AffineScript port) so `Echo`/`EchoR`/`echo_to_residue` lower cleanly to `Trope`/`FloatingQuality`/`detach`. This document + cross-references. *No new runtime coupling.*
 | *1* | Implement the `trope` lowering backend for the Echo operations only (the tightest correspondence). Emit schema-valid IR; conformance-test against `trope-checker/tests/conformance/fixtures/`.
 | *2* | Lower `stabilityFactor` → grade and emit a `use_model`; surface the verdict + witness as diagnostics alongside (then in place of) the scalar score.
 | *3* | Discharge L-Echo / L-Grade / L-Silent / L-Floor as Idris2/Agda proofs; CI-gate the lowering.

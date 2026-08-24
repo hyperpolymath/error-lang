@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Jonathan D.A. Jewell (hyperpolymath) <j.d.a.jewell@open.ac.uk>
 #
 # AffineScript type-check gate. The compiler's source of truth is now the
-# `.affine` modules under compiler/src/ (the legacy ReScript `.res` sources were
+# `.affine` modules under compiler/src/ (the legacy AffineScript `.res` sources were
 # removed once parity was reached). This gate builds the AffineScript toolchain
 # and type-checks every `.affine` source so a regression cannot land unnoticed.
 name: AffineScript Check
