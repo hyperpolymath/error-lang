@@ -15,7 +15,7 @@ toolbox enter nextgen-languages-dev
 
 # Verify setup
 
-just check   # or: cargo check / mix compile / etc.
+just doctor   # Check environment
 just test    # Run test suite
 
 ### Repository Structure
