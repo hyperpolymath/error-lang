@@ -18,6 +18,11 @@ set -euo pipefail
 
 AFFINE_REPO="${AFFINE_REPO:-https://github.com/hyperpolymath/affinescript}"
 AFFINE_SRC="${AFFINE_SRC:-${TMPDIR:-/tmp}/affinescript}"
+# Pinned compiler revision (full 40-char SHA): the last affinescript commit current
+# at the last green "Type-check .affine sources" run on main (2026-09-19T15:28Z).
+# Cloning HEAD unpinned broke that job from ~2026-10-01. Override via AFFINE_REF
+# only to deliberately move the pin.
+AFFINE_REF="${AFFINE_REF:-f69d44779f4d57d2af2d512a9f8cfb0970ae4d83}"
 PREFIX="${PREFIX:-/usr/local}"
 SUDO="$(command -v sudo || true)"
 
@@ -30,7 +35,12 @@ $SUDO apt-get install -y \
   libppxlib-ocaml-dev libjs-of-ocaml-dev
 
 # 2. Fetch the compiler.
-[ -d "$AFFINE_SRC/.git" ] || git clone --depth 1 "$AFFINE_REPO" "$AFFINE_SRC"
+if [ ! -d "$AFFINE_SRC/.git" ]; then
+  git init -q "$AFFINE_SRC"
+  git -C "$AFFINE_SRC" remote add origin "$AFFINE_REPO"
+  git -C "$AFFINE_SRC" fetch --depth 1 origin "$AFFINE_REF"
+  git -C "$AFFINE_SRC" checkout -q --detach FETCH_HEAD
+fi
 
 # 2a. Apply the module-resolver fix (export imported struct field definitions so
 #     cross-module struct field access type-checks) until it is upstreamed to
